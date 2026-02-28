@@ -182,6 +182,37 @@ export type PentacamResult = typeof pentacamResults.$inferSelect;
 export type InsertPentacamResult = typeof pentacamResults.$inferInsert;
 
 /**
+ * Pentacam Files table - imported image/PDF artifacts from device exports
+ */
+export const pentacamFiles = mysqlTable("pentacamFiles", {
+  id: int("id").autoincrement().primaryKey(),
+  patientId: int("patientId"),
+  patientCode: varchar("patientCode", { length: 50 }),
+  sourcePath: varchar("sourcePath", { length: 512 }).notNull().unique(),
+  sourceFileName: varchar("sourceFileName", { length: 255 }).notNull(),
+  mimeType: varchar("mimeType", { length: 128 }).notNull(),
+  fileSizeBytes: int("fileSizeBytes"),
+  fileHash: varchar("fileHash", { length: 64 }),
+  eyeSide: mysqlEnum("eyeSide", ["OD", "OS", "OU", "unknown"]).default("unknown").notNull(),
+  capturedAt: timestamp("capturedAt"),
+  importStatus: mysqlEnum("importStatus", ["imported", "duplicate", "unmatched", "failed"]).notNull().default("imported"),
+  importError: text("importError"),
+  storageKey: varchar("storageKey", { length: 512 }),
+  storageUrl: text("storageUrl"),
+  metadata: json("metadata"),
+  importedAt: timestamp("importedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  patientImportedIdx: index("idx_pentacam_files_patient_imported").on(table.patientId, table.importedAt),
+  statusImportedIdx: index("idx_pentacam_files_status_imported").on(table.importStatus, table.importedAt),
+  fileHashIdx: index("idx_pentacam_files_hash").on(table.fileHash),
+}));
+
+export type PentacamFile = typeof pentacamFiles.$inferSelect;
+export type InsertPentacamFile = typeof pentacamFiles.$inferInsert;
+
+/**
  * Doctor Reports table - طھظ‚ط§ط±ظٹط± ط§ظ„ط·ط¨ظٹط¨
  */
 export const doctorReports = mysqlTable("doctorReports", {
