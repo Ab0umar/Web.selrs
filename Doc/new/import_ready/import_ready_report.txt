@@ -1,0 +1,18 @@
+Import-Ready Build Report
+================================================================================
+all_normalized.xlsx: rows=606 -> all_import_ready.xlsx
+combined_doctors_like_alsadany_normalized.xlsx: rows=300 -> combined_doctors_like_alsadany_import_ready.xlsx
+combined_doctors_like_alsadany_without_lasik_normalized.xlsx: rows=299 -> combined_doctors_like_alsadany_without_lasik_import_ready.xlsx
+missing_full_info_vs_all_normalized.xlsx: rows=110 -> missing_full_info_vs_all_import_ready.xlsx
+احمد رشدي_normalized.xlsx: rows=13 -> احمد رشدي_import_ready.xlsx
+السعدني_normalized.xlsx: rows=132 -> السعدني_import_ready.xlsx
+السيد_normalized.xlsx: rows=30 -> السيد_import_ready.xlsx
+الصواف_normalized.xlsx: rows=34 -> الصواف_import_ready.xlsx
+حازم _normalized.xlsx: rows=10 -> حازم _import_ready.xlsx
+حازم_normalized.xlsx: rows=10 -> حازم_import_ready.xlsx
+سعيد_normalized.xlsx: rows=9 -> سعيد_import_ready.xlsx
+عيسي_normalized.xlsx: rows=13 -> عيسي_import_ready.xlsx
+كريم_normalized.xlsx: rows=39 -> كريم_import_ready.xlsx
+محمد عبدالرحيم_normalized.xlsx: rows=20 -> محمد عبدالرحيم_import_ready.xlsx
+--------------------------------------------------------------------------------
+Merged: rows=1625 -> all_doctors_import_ready.xlsx

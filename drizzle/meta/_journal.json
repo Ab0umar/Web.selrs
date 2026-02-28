@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1770343396918,
+      "tag": "0000_vengeful_living_tribunal",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1770517642121,
+      "tag": "0001_wandering_prima",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1739244320000,
+      "tag": "00014_add_location_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1739246200000,
+      "tag": "00015_add_last_visit",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1771020330293,
+      "tag": "0016_complex_emma_frost",
+      "breakpoints": true
+    }
+  ]
+}

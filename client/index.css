@@ -1,0 +1,1161 @@
+﻿@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  /* Al Shrouk Eye Center - Primary Colors: Navy Blue & Gold */
+  --primary: oklch(0.35 0.15 260); /* Navy Blue */
+  --primary-foreground: oklch(0.98 0.001 60); /* Off-white */
+  --sidebar-primary: oklch(0.40 0.14 260); /* Lighter Navy */
+  --sidebar-primary-foreground: oklch(0.98 0.001 60);
+  --accent: oklch(0.65 0.18 70); /* Gold/Amber */
+  --accent-foreground: oklch(0.15 0.01 260); /* Dark text on gold */
+  --chart-1: oklch(0.35 0.15 260); /* Navy */
+  --chart-2: oklch(0.45 0.14 260); /* Light Navy */
+  --chart-3: oklch(0.65 0.18 70); /* Gold */
+  --chart-4: oklch(0.55 0.16 265); /* Medium Navy */
+  --chart-5: oklch(0.30 0.16 260); /* Dark Navy */
+  --radius: 0.65rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.235 0.015 65);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.235 0.015 65);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.235 0.015 65);
+  --secondary: oklch(0.98 0.001 286.375);
+  --secondary-foreground: oklch(0.4 0.015 65);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.141 0.005 285.823);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.623 0.214 259.815);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.235 0.015 65);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.623 0.214 259.815);
+}
+
+.dark {
+  /* Al Shrouk Eye Center - Dark Mode */
+  --primary: oklch(0.40 0.14 260); /* Light Navy for dark mode */
+  --primary-foreground: oklch(0.98 0.001 60);
+  --sidebar-primary: oklch(0.35 0.15 260); /* Darker Navy */
+  --sidebar-primary-foreground: oklch(0.98 0.001 60);
+  --accent: oklch(0.70 0.17 70); /* Brighter Gold in dark mode */
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.85 0.005 65);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.85 0.005 65);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.85 0.005 65);
+  --secondary: oklch(0.24 0.006 286.033);
+  --secondary-foreground: oklch(0.7 0.005 65);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground:  oklch(0.92 0.005 65);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.488 0.243 264.376);
+  --chart-1: var(--color-blue-300);
+  --chart-2: var(--color-blue-500);
+  --chart-3: var(--color-blue-600);
+  --chart-4: var(--color-blue-700);
+  --chart-5: var(--color-blue-800);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.85 0.005 65);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground:  oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.488 0.243 264.376);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    direction: rtl;
+    unicode-bidi: plaintext;
+    text-align: start;
+  }
+  body * {
+    unicode-bidi: plaintext;
+    text-align: start;
+  }
+  input,
+  textarea,
+  [contenteditable="true"] {
+    unicode-bidi: plaintext;
+    text-align: start;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 14px;
+  }
+  body {
+    line-height: 1.35;
+  }
+  h1 {
+    font-size: 1.35rem;
+  }
+  h2 {
+    font-size: 1.15rem;
+  }
+  h3 {
+    font-size: 1.05rem;
+  }
+  input,
+  textarea,
+  select,
+  button {
+    font-size: 0.95rem;
+  }
+  input[data-slot="input"],
+  textarea {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+
+  .page-layout .container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .page-layout .p-6 {
+    padding: 1rem;
+  }
+
+  .page-layout .p-4 {
+    padding: 0.75rem;
+  }
+
+  .page-layout .gap-6 {
+    gap: 1rem;
+  }
+
+  .page-layout input[data-slot="input"],
+  .page-layout textarea,
+  .page-layout select {
+    max-width: 100%;
+  }
+
+  .page-layout table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .page-layout th,
+  .page-layout td {
+    white-space: nowrap;
+  }
+
+  .sheet-layout {
+    font-size: 0.75rem;
+  }
+
+  .sheet-layout input[data-slot="input"],
+  .sheet-layout textarea[data-slot="textarea"],
+  .sheet-layout select {
+    font-size: 0.75rem;
+  }
+
+  .exam-table,
+  .pentacam-table {
+    font-size: 0.8rem;
+  }
+
+  /* Prevent tab headers from overlapping on narrow screens. */
+  [data-slot="tabs-list"] {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-slot="tabs-trigger"] {
+    flex: 0 0 auto;
+    min-width: max-content;
+  }
+
+  /* Keep wide sections scrollable rather than overflowing over other content. */
+  [data-slot="table-container"],
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+}
+
+@layer components {
+  /**
+   * Custom container utility that centers content and adds responsive padding.
+   *
+   * This overrides Tailwind's default container behavior to:
+   * - Auto-center content (mx-auto)
+   * - Add responsive horizontal padding
+   * - Set max-width for large screens
+   *
+   * Usage: <div className="container">...</div>
+   *
+   * For custom widths, use max-w-* utilities directly:
+   * <div className="max-w-6xl mx-auto px-4">...</div>
+   */
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem; /* 16px - mobile padding */
+    padding-right: 1rem;
+  }
+
+
+  .page-layout header.bg-primary {
+    width: 100%;
+  }
+
+  .page-layout header.bg-primary .container {
+    max-width: 100%;
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
+  }
+
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem; /* 32px - desktop padding */
+      padding-right: 2rem;
+      max-width: 1280px; /* Standard content width */
+    }
+  }
+}
+
+@media print {
+  body.print-only-refraction {
+    width: 148mm !important;
+    height: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  body.print-only-refraction * {
+    visibility: hidden !important;
+  }
+
+  body.print-only-refraction .refraction-print-section,
+  body.print-only-refraction .refraction-print-section * {
+    visibility: visible !important;
+  }
+
+  body.print-only-refraction .refraction-print-section {
+    position: fixed !important;
+    inset: 28mm auto auto 50% !important;
+    transform: translateX(-50%) !important;
+    width: 132mm !important;
+    max-width: 132mm !important;
+    background: #fff !important;
+    z-index: 9999 !important;
+    padding: 0 !important;
+  }
+}
+
+/* Print Styles for A4 Paper */
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+  
+  body {
+    margin: 0;
+    padding: 0;
+  }
+  
+
+  main {
+    max-width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 10mm;
+    page-break-after: always;
+    page-break-inside: avoid;
+  }
+
+  .notes-col {
+    padding-inline-start: 0 !important;
+  }
+  
+  .print\:hidden {
+    display: none !important;
+  }
+  
+  .print\:p-0 {
+    padding: 0 !important;
+  }
+
+  input[data-slot="input"],
+  textarea[data-slot="textarea"],
+  select {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+}
+
+
+/* Tighten field widths across all pages (including print) */
+.page-layout input[data-slot="input"] {
+  max-width: 260px;
+}
+.page-layout table input[data-slot="input"] {
+  max-width: 150px;
+}
+.page-layout textarea {
+  max-width: 420px;
+}
+
+/* Darker borders inside sheet layouts */
+.sheet-layout .border,
+.sheet-layout .border-b,
+.sheet-layout .border-t,
+.sheet-layout .border-l,
+.sheet-layout .border-r {
+  border-color: #4b5563;
+}
+
+/* Bold text across all sheet pages */
+.sheet-layout {
+  font-weight: 600;
+}
+
+.sheet-layout input[data-slot="input"],
+.sheet-layout textarea[data-slot="textarea"],
+.sheet-layout select {
+  font-weight: 600;
+}
+
+/* Center all input text */
+input[data-slot="input"],
+textarea[data-slot="textarea"],
+select {
+  text-align: center;
+  font-size: 1rem;
+}
+
+/* Remove input borders inside all sheet pages */
+.sheet-layout input[data-slot="input"] {
+  border-width: 0;
+  box-shadow: none;
+}
+.sheet-layout input[data-slot="input"]:focus-visible {
+  box-shadow: none;
+}
+
+/* Keep examination auto-air inputs visible inside sheet-layout pages. */
+.auto-air-grid input[data-slot="input"] {
+  border: 1px solid #94a3b8 !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
+  max-width: 88px;
+  margin-inline: auto;
+}
+
+.auto-air-grid .grid-cols-3 > input[data-slot="input"]:first-child {
+  margin-inline-start: 0 !important;
+  margin-inline-end: auto !important;
+}
+
+/* Force first input column (OD side) to max-left in all auto-air rows. */
+.auto-air-grid > .grid > input[data-slot="input"]:nth-child(2) {
+  margin-inline-start: 0 !important;
+  margin-inline-end: auto !important;
+}
+.auto-air-grid > .grid > input[data-slot="input"]:nth-child(3) {
+  margin-inline-start: 0 !important;
+  margin-inline-end: auto !important;
+}
+
+.auto-air-grid > .grid > div.grid.grid-cols-3:nth-child(2) {
+  justify-items: start;
+}
+.auto-air-grid > .grid > div.grid.grid-cols-3:nth-child(3) {
+  justify-items: start;
+}
+
+.auto-air-grid > .grid > div.grid.grid-cols-3:nth-child(2) > input[data-slot="input"] {
+  margin-inline-start: 0 !important;
+  margin-inline-end: auto !important;
+}
+.auto-air-grid > .grid > div.grid.grid-cols-3:nth-child(3) > input[data-slot="input"] {
+  margin-inline-start: 0 !important;
+  margin-inline-end: auto !important;
+}
+
+/* In grouped 1st/2nd/3rd controls, each input should fill its divided cell. */
+.auto-air-group input[data-slot="input"] {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  background: transparent !important;
+}
+
+.auto-air-group {
+  width: 100%;
+  max-width: 210px;
+}
+
+.auto-air-grid input[data-slot="input"]:focus-visible {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18) !important;
+}
+
+/* Compact inputs for Lasik tables to fit A4 */
+.lasik-table input[data-slot="input"] {
+  height: 1.25rem;
+  padding: 0 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.exam-table {
+  font-size: 0.95rem;
+  line-height: 1.2rem;
+}
+
+.exam-table input[data-slot="input"] {
+  height: 0.85rem;
+  padding: 0 0.1rem;
+  font-size: 1rem;
+  line-height: 1.1rem;
+}
+
+/* Keep patients table compact on desktop and mobile. */
+.patients-table {
+  margin: 0 auto;
+}
+
+.patients-table th,
+.patients-table td {
+  padding: 0.2rem 0.25rem;
+  white-space: nowrap;
+}
+
+/* Keep auto-air inputs visibly editable in Examination page */
+.auto-air-grid input[data-slot="input"] {
+  border: 1px solid #94a3b8 !important;
+  background: #fff !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Match Pentacam inputs to exam-table sizing */
+.pentacam-table input[data-slot="input"] {
+  height: 0.85rem;
+  padding: 0 0.1rem;
+  font-size: 1rem;
+  line-height: 1.1rem;
+}
+
+/* Final mobile overrides (keep at end so they win over width-tightening rules above) */
+@media (max-width: 640px) {
+  .page-layout input[data-slot="input"],
+  .page-layout textarea {
+    max-width: 100%;
+  }
+
+  .page-layout table input[data-slot="input"] {
+    max-width: none;
+    min-width: 5.5rem;
+  }
+
+  .patients-table-wrap {
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+  }
+
+  .patients-table th,
+  .patients-table td {
+    padding: 0.25rem 0.25rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .patients-table td .flex.flex-wrap {
+    gap: 0.25rem;
+    flex-wrap: nowrap;
+  }
+
+  .patients-table td .flex.flex-wrap > button {
+    min-height: 1.9rem;
+    min-width: 1.9rem;
+    padding: 0.2rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .patients-table {
+    min-width: 860px !important;
+  }
+
+  .patients-table th,
+  .patients-table td {
+    padding: 0.28rem 0.22rem;
+    font-size: 0.74rem;
+  }
+
+  .patients-table td .flex.flex-wrap > button {
+    min-height: 1.7rem;
+    min-width: 1.7rem;
+    padding: 0.15rem;
+  }
+}
+
+/* APK mobile: prevent horizontal scroll on sheet pages */
+@media (max-width: 640px) {
+  .sheet-layout .overflow-x-auto,
+  .sheet-layout [data-slot="table-container"] {
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+  }
+
+  .sheet-layout table {
+    display: table !important;
+    width: 100% !important;
+    table-layout: fixed !important;
+    overflow: visible !important;
+  }
+
+  .sheet-layout th,
+  .sheet-layout td {
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .sheet-layout input[data-slot="input"],
+  .sheet-layout textarea[data-slot="textarea"],
+  .sheet-layout select {
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+}
+
+/*
+ * Trial for Win7/Edge109:
+ * Provide legacy-safe CSS variables and simplify key layout surfaces.
+ */
+.legacy-win7:root {
+  --primary: #1f3f82;
+  --primary-foreground: #f8fafc;
+  --sidebar-primary: #31529a;
+  --sidebar-primary-foreground: #f8fafc;
+  --accent: #f2f4f7;
+  --accent-foreground: #1f2937;
+  --chart-1: #1f3f82;
+  --chart-2: #2f5aa8;
+  --chart-3: #d39c2a;
+  --chart-4: #4169b8;
+  --chart-5: #1b325f;
+  --background: #ffffff;
+  --foreground: #2f3a4a;
+  --card: #ffffff;
+  --card-foreground: #2f3a4a;
+  --popover: #ffffff;
+  --popover-foreground: #2f3a4a;
+  --secondary: #f3f4f6;
+  --secondary-foreground: #374151;
+  --muted: #f3f4f6;
+  --muted-foreground: #6b7280;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #cbd5e1;
+  --input: #cbd5e1;
+  --ring: #3b82f6;
+  --sidebar: #fafafa;
+  --sidebar-foreground: #2f3a4a;
+  --sidebar-accent: #f3f4f6;
+  --sidebar-accent-foreground: #1f2937;
+  --sidebar-border: #cbd5e1;
+  --sidebar-ring: #3b82f6;
+}
+
+.legacy-win7 body {
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+}
+
+.legacy-win7 [data-slot="card"],
+.legacy-win7 .card,
+.legacy-win7 .rounded-lg,
+.legacy-win7 .rounded-md,
+.legacy-win7 .rounded-sm {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.legacy-win7 input[data-slot="input"],
+.legacy-win7 textarea[data-slot="textarea"],
+.legacy-win7 select,
+.legacy-win7 button {
+  background: #fff;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+}
+
+.legacy-win7 .grid {
+  gap: 0.75rem;
+}
+
+.legacy-win7 .container {
+  max-width: 100%;
+}
+
+.legacy-win7 .bg-primary {
+  background-color: var(--primary) !important;
+}
+
+.legacy-win7 .text-primary-foreground {
+  color: var(--primary-foreground) !important;
+}
+
+.legacy-win7 .bg-secondary {
+  background-color: var(--secondary) !important;
+}
+
+.legacy-win7 .text-secondary-foreground {
+  color: var(--secondary-foreground) !important;
+}
+
+.legacy-win7 .text-muted-foreground {
+  color: var(--muted-foreground) !important;
+}
+
+.legacy-win7 .border,
+.legacy-win7 .border-t,
+.legacy-win7 .border-r,
+.legacy-win7 .border-b,
+.legacy-win7 .border-l {
+  border-color: var(--border) !important;
+}
+
+.legacy-win7 .shadow-sm,
+.legacy-win7 .shadow,
+.legacy-win7 .shadow-md,
+.legacy-win7 .shadow-lg {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16) !important;
+}
+
+.legacy-win7 .backdrop-blur-sm,
+.legacy-win7 .backdrop-blur,
+.legacy-win7 .backdrop-blur-md,
+.legacy-win7 .backdrop-blur-lg {
+  backdrop-filter: none !important;
+}
+
+/* Dark mode readability guard for hard-coded light-theme text classes */
+.dark .text-black {
+  color: var(--foreground) !important;
+}
+
+.dark .text-gray-900,
+.dark .text-slate-900,
+.dark .text-zinc-900,
+.dark .text-neutral-900 {
+  color: #f3f4f6 !important;
+}
+
+.dark .text-gray-800,
+.dark .text-slate-800,
+.dark .text-zinc-800,
+.dark .text-neutral-800 {
+  color: #e5e7eb !important;
+}
+
+.dark .text-gray-700,
+.dark .text-slate-700,
+.dark .text-zinc-700,
+.dark .text-neutral-700 {
+  color: #d1d5db !important;
+}
+
+.dark .text-gray-600,
+.dark .text-gray-500 {
+  color: #9ca3af !important;
+}
+
+/* Global dark fallback to avoid invisible text when components hard-code dark colors */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body,
+.dark p,
+.dark span,
+.dark label,
+.dark li,
+.dark td,
+.dark th,
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  color: var(--foreground);
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  color: var(--foreground);
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* Sheets in dark mode: many sections are white cards, so force dark text there */
+.dark .sheet-layout .bg-white,
+.dark .sheet-layout [class*="bg-white"] {
+  color: #111827 !important;
+}
+
+.dark .sheet-layout .bg-white input,
+.dark .sheet-layout [class*="bg-white"] input,
+.dark .sheet-layout .bg-white textarea,
+.dark .sheet-layout [class*="bg-white"] textarea,
+.dark .sheet-layout .bg-white select,
+.dark .sheet-layout [class*="bg-white"] select {
+  color: #111827 !important;
+}
+
+/* Sheets in dark mode with dark background: force readable light text and borders */
+.dark .sheet-layout,
+.dark .sheet-layout table,
+.dark .sheet-layout th,
+.dark .sheet-layout td,
+.dark .sheet-layout label,
+.dark .sheet-layout span,
+.dark .sheet-layout p,
+.dark .sheet-layout h1,
+.dark .sheet-layout h2,
+.dark .sheet-layout h3,
+.dark .sheet-layout h4 {
+  color: #e5e7eb !important;
+}
+
+.dark .sheet-layout .text-primary,
+.dark .sheet-layout .text-gray-900,
+.dark .sheet-layout .text-gray-800,
+.dark .sheet-layout .text-slate-900,
+.dark .sheet-layout .text-slate-800,
+.dark .sheet-layout .text-black {
+  color: #e5e7eb !important;
+}
+
+.dark .sheet-layout table,
+.dark .sheet-layout th,
+.dark .sheet-layout td,
+.dark .sheet-layout .border,
+.dark .sheet-layout .border-t,
+.dark .sheet-layout .border-r,
+.dark .sheet-layout .border-b,
+.dark .sheet-layout .border-l {
+  border-color: #475569 !important;
+}
+
+.legacy-win7 [data-slot="button"] {
+  min-height: 2rem;
+  padding: 0.3rem 0.7rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.legacy-win7 .bg-primary[data-slot="button"] {
+  color: #fff !important;
+}
+
+.legacy-win7 [data-slot="input"],
+.legacy-win7 [data-slot="textarea"],
+.legacy-win7 [data-slot="select-trigger"],
+.legacy-win7 [data-slot="select-content"],
+.legacy-win7 select,
+.legacy-win7 textarea,
+.legacy-win7 input {
+  border: 1px solid var(--input) !important;
+  background-color: #fff !important;
+  color: #111827;
+}
+
+.legacy-win7 [data-slot="input"]:focus,
+.legacy-win7 [data-slot="textarea"]:focus,
+.legacy-win7 [data-slot="select-trigger"]:focus,
+.legacy-win7 select:focus,
+.legacy-win7 textarea:focus,
+.legacy-win7 input:focus {
+  outline: 1px solid #60a5fa;
+  outline-offset: 0;
+  box-shadow: none !important;
+}
+
+.legacy-win7 [data-slot="button"],
+.legacy-win7 button {
+  color: #0f172a;
+}
+
+.legacy-win7 .bg-primary[data-slot="button"],
+.legacy-win7 .bg-primary button,
+.legacy-win7 button.bg-primary {
+  background-color: var(--primary) !important;
+  color: #fff !important;
+  border-color: var(--primary) !important;
+}
+
+.legacy-win7 .bg-destructive[data-slot="button"],
+.legacy-win7 .bg-destructive button,
+.legacy-win7 button.bg-destructive {
+  background-color: var(--destructive) !important;
+  color: #fff !important;
+  border-color: var(--destructive) !important;
+}
+
+.legacy-win7 [data-slot="table-container"],
+.legacy-win7 .overflow-x-auto {
+  overflow-x: auto !important;
+  overflow-y: hidden;
+}
+
+.legacy-win7 table {
+  border-collapse: collapse;
+}
+
+.legacy-win7 th,
+.legacy-win7 td {
+  border-color: var(--border);
+}
+
+.legacy-win7 .patients-table th,
+.legacy-win7 .patients-table td {
+  vertical-align: middle;
+}
+
+.legacy-win7 [data-slot="dialog-content"],
+.legacy-win7 [data-slot="sheet-content"],
+.legacy-win7 [role="dialog"] {
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+.legacy-win7 [data-slot="tabs-list"] {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.legacy-win7 [data-slot="tabs-trigger"] {
+  flex: 0 0 auto;
+}
+
+.legacy-win7 [data-slot="tabs-trigger"] svg,
+.legacy-win7 [data-slot="button"] svg,
+.legacy-win7 button svg {
+  display: inline-block !important;
+  width: 1rem !important;
+  height: 1rem !important;
+  min-width: 1rem;
+  min-height: 1rem;
+  flex: 0 0 auto;
+  stroke: currentColor;
+  fill: none;
+  opacity: 1 !important;
+}
+
+.legacy-win7 svg,
+.legacy-win7 .lucide {
+  visibility: visible !important;
+  overflow: visible !important;
+  color: inherit !important;
+  stroke: currentColor !important;
+  stroke-width: 2 !important;
+}
+
+.legacy-win7 [data-slot="tabs-trigger"] .lucide,
+.legacy-win7 [data-slot="tabs-trigger"] svg {
+  margin-inline-start: 0;
+  margin-inline-end: 0.35rem;
+}
+
+.legacy-win7 [data-slot="tabs-trigger"] {
+  color: #334155;
+}
+
+.legacy-win7 [data-slot="tabs-trigger"][data-state="active"] {
+  color: #0f172a;
+}
+
+.legacy-win7 .animate-in,
+.legacy-win7 .animate-out,
+.legacy-win7 .transition,
+.legacy-win7 .transition-colors,
+.legacy-win7 .transition-opacity,
+.legacy-win7 .transition-transform {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (max-width: 1024px) {
+  .legacy-win7 .page-layout .grid {
+    display: block;
+  }
+
+  .legacy-win7 .page-layout .grid > * {
+    margin-bottom: 0.75rem;
+  }
+}
+
+/* Make plain examination inputs clearly visible and compact */
+.examination-plain-grid input[data-slot="input"] {
+  width: 100% !important;
+  max-width: 88px !important;
+  min-height: 1.6rem !important;
+  height: 1.6rem !important;
+  padding: 0 0.35rem !important;
+  font-size: 0.74rem !important;
+  border: 1px solid #94a3b8 !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12) !important;
+  background-color: #ffffff !important;
+}
+
+.examination-plain-grid input[data-slot="input"]:focus-visible {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18) !important;
+}
+
+.examination-plain-grid > .grid {
+  max-width: 220px;
+}
+
+
+.examination-plain-grid-wrapper {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.examination-plain-grid {
+  justify-items: center;
+  text-align: center;
+  margin: 0 auto;
+}
+
+.examination-plain-grid > label {
+  justify-self: center;
+  text-align: center;
+}
+
+
+
+/* Hard remove outer frame around custom examination grids */
+.examination-plain-grid-wrapper,
+.examination-plain-grid-wrapper > div,
+.examination-plain-grid {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+/* APK: make examination inputs visibly bordered and compact */
+.exam-compact-inputs input[data-slot="input"] {
+  min-height: 1.75rem !important;
+  height: 1.75rem !important;
+  padding: 0 0.35rem !important;
+  font-size: 0.72rem !important;
+  border: 2px solid #64748b !important;
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14) !important;
+}
+
+.exam-compact-inputs input[data-slot="input"]:focus-visible {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
+}
+
+.exam-compact-inputs .w-40 {
+  width: 7rem !important;
+}
+
+.exam-compact-inputs .w-24 {
+  width: 4.8rem !important;
+}
+
+.exam-compact-inputs .w-16 {
+  width: 3.4rem !important;
+}
+
+/* Final override: dark mode sheet readability (must stay at file end) */
+html.dark .sheet-layout [class*="print-root"],
+html.dark .sheet-layout .bg-white {
+  background-color: #ffffff !important;
+  color: #111827 !important;
+}
+
+html.dark .sheet-layout [class*="print-root"] *,
+html.dark .sheet-layout .bg-white * {
+  color: #111827 !important;
+}
+
+html.dark .sheet-layout table {
+  color: #111827 !important;
+}
+
+html.dark .sheet-layout table th,
+html.dark .sheet-layout table td {
+  color: #111827 !important;
+  border-color: #64748b !important;
+}
+
+html.dark .sheet-layout input,
+html.dark .sheet-layout textarea,
+html.dark .sheet-layout select {
+  color: #111827 !important;
+  background-color: #ffffff !important;
+}
+
+/* Explicit readability for patient header + signature labels in all sheet print roots */
+html.dark .sheet-layout .consultant-main-print-root label,
+html.dark .sheet-layout .consultant-main-print-root span,
+html.dark .sheet-layout .consultant-main-print-root p,
+html.dark .sheet-layout .specialist-print-root label,
+html.dark .sheet-layout .specialist-print-root span,
+html.dark .sheet-layout .specialist-print-root p,
+html.dark .sheet-layout .lasik-print-root label,
+html.dark .sheet-layout .lasik-print-root span,
+html.dark .sheet-layout .lasik-print-root p,
+html.dark .sheet-layout .external-print-root label,
+html.dark .sheet-layout .external-print-root span,
+html.dark .sheet-layout .external-print-root p,
+html.dark .sheet-layout .followup-print-root label,
+html.dark .sheet-layout .followup-print-root span,
+html.dark .sheet-layout .followup-print-root p {
+  color: #111827 !important;
+  opacity: 1 !important;
+}
+
+html.dark .sheet-layout .consultant-main-print-root input[readonly],
+html.dark .sheet-layout .specialist-print-root input[readonly],
+html.dark .sheet-layout .lasik-print-root input[readonly],
+html.dark .sheet-layout .external-print-root input[readonly],
+html.dark .sheet-layout .followup-print-root input[readonly] {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+  opacity: 1 !important;
+}
+
+/* FINAL: force light paper style inside sheets content (dark mode safe) */
+html.dark .sheet-layout main {
+  background: #ffffff !important;
+}
+
+html.dark .sheet-layout main,
+html.dark .sheet-layout main * {
+  color: #111827 !important;
+  opacity: 1 !important;
+}
+
+html.dark .sheet-layout main table,
+html.dark .sheet-layout main th,
+html.dark .sheet-layout main td,
+html.dark .sheet-layout main .border,
+html.dark .sheet-layout main .border-t,
+html.dark .sheet-layout main .border-r,
+html.dark .sheet-layout main .border-b,
+html.dark .sheet-layout main .border-l {
+  border-color: #64748b !important;
+}
+
+html.dark .sheet-layout main input,
+html.dark .sheet-layout main textarea,
+html.dark .sheet-layout main select {
+  background: #ffffff !important;
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+}

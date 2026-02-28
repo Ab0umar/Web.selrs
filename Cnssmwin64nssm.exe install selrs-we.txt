@@ -1,0 +1,15 @@
+C:\nssm\win64\nssm.exe install selrs-web "C:\Program Files\nodejs\node.exe" "S:\selrs.cc\mysql\dist\index.js"
+  C:\nssm\win64\nssm.exe set selrs-web AppDirectory "S:\selrs.cc\mysql"
+  C:\nssm\win64\nssm.exe set selrs-web AppEnvironmentExtra "NODE_ENV=production"
+  C:\nssm\win64\nssm.exe start selrs-web
+
+
+C:\nssm\win64\nssm.exe install selrs-tunnel "C:\Program Files (x86)\cloudflared\cloudflared.exe" "tunnel --config C:\ProgramData\cloudflared\config.yml run"
+  C:\nssm\win64\nssm.exe set selrs-tunnel AppDirectory "C:\ProgramData\cloudflared"
+  C:\nssm\win64\nssm.exe set selrs-tunnel Start SERVICE_AUTO_START
+  C:\nssm\win64\nssm.exe start selrs-tunnel
+
+  Optional verify:
+
+  C:\nssm\win64\nssm.exe status selrs-tunnel
+  sc.exe query selrs-tunnel

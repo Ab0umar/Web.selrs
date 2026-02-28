@@ -1,0 +1,17 @@
+Normalization Report
+================================================================================
+all.xlsx: rows=606 | OK -> all_normalized.xlsx
+combined_doctors_like_alsadany.xlsx: rows=300 | OK -> combined_doctors_like_alsadany_normalized.xlsx
+combined_doctors_like_alsadany_without_lasik.xlsx: rows=299 | OK -> combined_doctors_like_alsadany_without_lasik_normalized.xlsx
+missing_full_info_vs_all.xlsx: rows=110 | OK -> missing_full_info_vs_all_normalized.xlsx
+missing_patient_codes_vs_all.xlsx: rows=0 | SKIPPED (configured)
+احمد رشدي.xlsx: rows=13 | OK -> احمد رشدي_normalized.xlsx
+السعدني.xlsx: rows=132 | OK -> السعدني_normalized.xlsx
+السيد.xlsx: rows=30 | OK -> السيد_normalized.xlsx
+الصواف.xlsx: rows=34 | OK -> الصواف_normalized.xlsx
+حازم .xlsx: rows=10 | OK -> حازم _normalized.xlsx
+حازم.xlsx: rows=10 | OK -> حازم_normalized.xlsx
+سعيد.xlsx: rows=9 | OK -> سعيد_normalized.xlsx
+عيسي.xlsx: rows=13 | OK -> عيسي_normalized.xlsx
+كريم.xlsx: rows=39 | OK -> كريم_normalized.xlsx
+محمد عبدالرحيم.xlsx: rows=20 | OK -> محمد عبدالرحيم_normalized.xlsx

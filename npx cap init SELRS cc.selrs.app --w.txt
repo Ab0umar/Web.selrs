@@ -1,0 +1,1 @@
+  npx cap init "SELRS" "cc.selrs.app" --web-dir=dist/public

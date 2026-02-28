@@ -1,0 +1,34 @@
+-- Safe delete for PAPAT_IO + PAPATMF by PAT_CD range
+-- Edit @FromPatCd and @ToPatCd before running.
+
+SET XACT_ABORT ON;
+BEGIN TRAN;
+
+DECLARE @FromPatCd nvarchar(20) = N'0714';
+DECLARE @ToPatCd   nvarchar(20) = N'0720';
+
+SELECT 'PAPAT_IO' AS tbl, COUNT(*) AS cnt
+FROM op2026.dbo.PAPAT_IO
+WHERE PAT_CD BETWEEN @FromPatCd AND @ToPatCd;
+
+SELECT 'PAPATMF' AS tbl, COUNT(*) AS cnt
+FROM op2026.dbo.PAPATMF
+WHERE PAT_CD BETWEEN @FromPatCd AND @ToPatCd;
+
+DELETE FROM op2026.dbo.PAPAT_IO
+WHERE PAT_CD BETWEEN @FromPatCd AND @ToPatCd;
+
+DELETE FROM op2026.dbo.PAPATMF
+WHERE PAT_CD BETWEEN @FromPatCd AND @ToPatCd;
+
+SELECT 'PAPAT_IO' AS tbl, COUNT(*) AS cnt
+FROM op2026.dbo.PAPAT_IO
+WHERE PAT_CD BETWEEN @FromPatCd AND @ToPatCd;
+
+SELECT 'PAPATMF' AS tbl, COUNT(*) AS cnt
+FROM op2026.dbo.PAPATMF
+WHERE PAT_CD BETWEEN @FromPatCd AND @ToPatCd;
+
+COMMIT TRAN;
+-- Use ROLLBACK TRAN; instead of COMMIT if verification is not correct.
+

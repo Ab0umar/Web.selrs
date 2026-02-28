@@ -1,0 +1,2 @@
+ALTER TABLE `users`
+ADD COLUMN `shift` int NOT NULL DEFAULT 1;
