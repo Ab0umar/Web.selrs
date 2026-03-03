@@ -1355,6 +1355,19 @@ export async function getPentacamResultsByVisit(visitId: number) {
   return await db.select().from(pentacamResults).where(eq(pentacamResults.visitId, visitId));
 }
 
+export async function getPentacamResultsByPatient(patientId: number, limit = 100) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const safeLimit = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(500, Number(limit))) : 100;
+  return await db
+    .select()
+    .from(pentacamResults)
+    .where(eq(pentacamResults.patientId, patientId))
+    .orderBy(desc(pentacamResults.createdAt))
+    .limit(safeLimit);
+}
+
 // ============ DOCTOR REPORT OPERATIONS ============
 
 export async function createDoctorReport(reportData: any) {

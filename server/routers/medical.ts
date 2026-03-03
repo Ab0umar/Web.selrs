@@ -59,6 +59,62 @@ const serviceDirectoryEntrySchema = z.object({
   isActive: z.boolean().default(true),
 });
 
+const readyTemplateScopeSchema = z.enum(["tests", "prescription"]);
+
+const readyTemplateOverrideUpdateSchema = z.object({
+  scope: readyTemplateScopeSchema,
+  templateId: z.string().min(1),
+  name: z.string().optional(),
+  testItems: z
+    .array(
+      z.object({
+        testId: z.number(),
+        notes: z.string().optional(),
+      })
+    )
+    .optional(),
+  prescriptionItems: z
+    .array(
+      z.object({
+        medicationName: z.string(),
+        dosage: z.string().optional(),
+        frequency: z.string().optional(),
+        duration: z.string().optional(),
+        instructions: z.string().optional(),
+      })
+    )
+    .optional(),
+});
+
+const readyTemplateOverrideImportSchema = z.object({
+  scope: readyTemplateScopeSchema,
+  templates: z.array(
+    z.object({
+      templateId: z.string().min(1),
+      name: z.string().optional(),
+      testItems: z
+        .array(
+          z.object({
+            testId: z.number(),
+            notes: z.string().optional(),
+          })
+        )
+        .optional(),
+      prescriptionItems: z
+        .array(
+          z.object({
+            medicationName: z.string(),
+            dosage: z.string().optional(),
+            frequency: z.string().optional(),
+            duration: z.string().optional(),
+            instructions: z.string().optional(),
+          })
+        )
+        .optional(),
+    })
+  ),
+});
+
 const inferSrvTyp = (entry: {
   serviceType: "consultant" | "specialist" | "lasik" | "surgery" | "external";
   defaultSheet?: string;
@@ -1360,6 +1416,24 @@ export const medicalRouter = router({
       return await db.getPentacamResultsByVisit(input.visitId);
     }),
 
+  getPentacamFilesByPatient: protectedProcedure
+    .input(z.object({ patientId: z.number(), limit: z.number().optional() }))
+    .query(async ({ input }) => {
+      const rows = await db.getPentacamResultsByPatient(input.patientId, input.limit ?? 100);
+      return rows.map((row: any) => ({
+        id: row.id,
+        patientId: row.patientId,
+        visitId: row.visitId,
+        eyeSide: "",
+        importStatus: "imported",
+        sourceFileName: `Pentacam ${row.id}`,
+        storageUrl: "",
+        mimeType: "",
+        capturedAt: row.createdAt ?? null,
+        importedAt: row.createdAt ?? null,
+      }));
+    }),
+
   // ============ DOCTOR REPORT ROUTERS ============
 
   // Doctor: Create report
@@ -1958,6 +2032,105 @@ export const medicalRouter = router({
     .input(z.object({ patientId: z.number(), page: z.string(), data: z.any() }))
     .mutation(async ({ input }) => {
       await db.upsertPatientPageState(input.patientId, input.page, input.data);
+      return { success: true };
+    }),
+
+  getReadyTemplateOverrides: protectedProcedure
+    .input(z.object({ scope: readyTemplateScopeSchema }))
+    .query(async ({ input }) => {
+      const row = await db.getSystemSetting("ready_template_overrides");
+      if (!row?.value) return {};
+      try {
+        const parsed = JSON.parse(row.value);
+        const byScope = parsed && typeof parsed === "object" ? (parsed as Record<string, any>) : {};
+        const scopeValue = byScope[input.scope];
+        return scopeValue && typeof scopeValue === "object" ? scopeValue : {};
+      } catch {
+        return {};
+      }
+    }),
+
+  upsertReadyTemplateOverride: protectedProcedure
+    .input(readyTemplateOverrideUpdateSchema)
+    .mutation(async ({ input, ctx }) => {
+      const row = await db.getSystemSetting("ready_template_overrides");
+      let parsed: Record<string, any> = {};
+      if (row?.value) {
+        try {
+          const raw = JSON.parse(row.value);
+          if (raw && typeof raw === "object") parsed = raw as Record<string, any>;
+        } catch {
+          parsed = {};
+        }
+      }
+      const scopeMap =
+        parsed[input.scope] && typeof parsed[input.scope] === "object"
+          ? { ...(parsed[input.scope] as Record<string, any>) }
+          : {};
+      const existing =
+        scopeMap[input.templateId] && typeof scopeMap[input.templateId] === "object"
+          ? { ...(scopeMap[input.templateId] as Record<string, any>) }
+          : {};
+
+      const hasItemsUpdate = "testItems" in input || "prescriptionItems" in input;
+      const hasNameUpdate = "name" in input;
+      const incomingName = String(input.name ?? "").trim();
+      const incomingTestItems = Array.isArray(input.testItems) ? input.testItems : undefined;
+      const incomingPrescriptionItems = Array.isArray(input.prescriptionItems)
+        ? input.prescriptionItems
+        : undefined;
+      const shouldDelete =
+        hasNameUpdate &&
+        hasItemsUpdate &&
+        !incomingName &&
+        (incomingTestItems?.length ?? incomingPrescriptionItems?.length ?? 0) === 0;
+
+      if (shouldDelete) {
+        delete scopeMap[input.templateId];
+      } else {
+        const next = { ...existing };
+        if (hasNameUpdate) next.name = incomingName;
+        if (incomingTestItems !== undefined) next.testItems = incomingTestItems;
+        if (incomingPrescriptionItems !== undefined) next.prescriptionItems = incomingPrescriptionItems;
+        scopeMap[input.templateId] = next;
+      }
+
+      parsed[input.scope] = scopeMap;
+      await db.updateSystemSettings("ready_template_overrides", parsed);
+      await db.logAuditEvent(ctx.user.id, "UPSERT_READY_TEMPLATE_OVERRIDE", "systemSetting", 0, {
+        scope: input.scope,
+        templateId: input.templateId,
+      });
+      return { success: true };
+    }),
+
+  importReadyTemplateOverrides: protectedProcedure
+    .input(readyTemplateOverrideImportSchema)
+    .mutation(async ({ input, ctx }) => {
+      const row = await db.getSystemSetting("ready_template_overrides");
+      let parsed: Record<string, any> = {};
+      if (row?.value) {
+        try {
+          const raw = JSON.parse(row.value);
+          if (raw && typeof raw === "object") parsed = raw as Record<string, any>;
+        } catch {
+          parsed = {};
+        }
+      }
+      const scopeMap: Record<string, any> = {};
+      for (const template of input.templates) {
+        scopeMap[template.templateId] = {
+          ...(template.name !== undefined ? { name: String(template.name ?? "").trim() } : {}),
+          ...(template.testItems !== undefined ? { testItems: template.testItems } : {}),
+          ...(template.prescriptionItems !== undefined ? { prescriptionItems: template.prescriptionItems } : {}),
+        };
+      }
+      parsed[input.scope] = scopeMap;
+      await db.updateSystemSettings("ready_template_overrides", parsed);
+      await db.logAuditEvent(ctx.user.id, "IMPORT_READY_TEMPLATE_OVERRIDES", "systemSetting", 0, {
+        scope: input.scope,
+        count: input.templates.length,
+      });
       return { success: true };
     }),
 
