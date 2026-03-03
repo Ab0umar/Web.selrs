@@ -4,7 +4,9 @@ import { router, protectedProcedure, doctorProcedure, nurseProcedure, technician
 import { authService } from "../_core/auth";
 import * as db from "../db";
 import { broadcastSheetUpdate } from "../_core/ws";
+import { getBuildInfo } from "../_core/buildInfo";
 import {
+  backfillPapatSrvNamesInMssql,
   deletePatientFromMssqlByCode,
   ensurePatientServiceInMssql,
   getMssqlSyncStatus,
@@ -12,11 +14,6 @@ import {
   syncPatientsFromMssql,
   upsertPatientToMssql,
 } from "../integrations/mssqlPatients";
-import {
-  getPentacamImportRuntimeStatus,
-  runPentacamAutoImportOnce,
-  updatePentacamImportRuntimeConfig,
-} from "../integrations/pentacamAutoImport";
 
 const doctorLocationTypeSchema = z.preprocess((value) => {
   const raw = String(value ?? "").trim().toLowerCase();
@@ -37,6 +34,12 @@ const serviceDirectoryEntrySchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
   serviceType: z.enum(["consultant", "specialist", "lasik", "surgery", "external"]),
+  srvTyp: z
+    .preprocess((value) => {
+      const raw = String(value ?? "").trim();
+      if (!raw) return undefined;
+      return raw;
+    }, z.enum(["1", "2"]).optional()),
   defaultSheet: z
     .enum([
       "consultant",
@@ -56,23 +59,24 @@ const serviceDirectoryEntrySchema = z.object({
   isActive: z.boolean().default(true),
 });
 
-const readyTemplateScopeSchema = z.enum(["prescription", "tests"]);
-const readyPrescriptionItemSchema = z.object({
-  medicationName: z.string().min(1),
-  dosage: z.string().optional().default(""),
-  frequency: z.string().optional().default(""),
-  duration: z.string().optional().default(""),
-  instructions: z.string().optional().default(""),
-});
-const readyTestItemSchema = z.object({
-  testId: z.number().int().positive(),
-  notes: z.string().optional().default(""),
-});
-const readyTemplateOverridePayloadSchema = z.object({
-  name: z.string().optional(),
-  prescriptionItems: z.array(readyPrescriptionItemSchema).optional(),
-  testItems: z.array(readyTestItemSchema).optional(),
-});
+const inferSrvTyp = (entry: {
+  serviceType: "consultant" | "specialist" | "lasik" | "surgery" | "external";
+  defaultSheet?: string;
+  srvTyp?: "1" | "2";
+}): "1" | "2" => {
+  if (entry.srvTyp === "1" || entry.srvTyp === "2") return entry.srvTyp;
+  const sheet = String(entry.defaultSheet ?? "").trim().toLowerCase();
+  if (
+    entry.serviceType === "external" ||
+    sheet === "external" ||
+    sheet === "surgery_external" ||
+    sheet === "pentacam_external" ||
+    sheet === "radiology_external"
+  ) {
+    return "2";
+  }
+  return "1";
+};
 
 const normalizeServiceDefaultSheet = (
   value: unknown,
@@ -228,9 +232,12 @@ async function pushNewPatientToMssql(patient: {
   locationType?: "center" | "external" | null;
   enteredBy?: string | null;
 }) {
-  const serviceCode = await resolveServiceCodeForType(String(patient.serviceType ?? ""));
-  if (!serviceCode) {
-    throw new Error(`Missing MSSQL service code for serviceType='${String(patient.serviceType ?? "")}'`);
+  const requestedServiceType = String(patient.serviceType ?? "").trim();
+  const serviceCode = requestedServiceType
+    ? await resolveServiceCodeForType(requestedServiceType)
+    : "";
+  if (requestedServiceType && !serviceCode) {
+    throw new Error(`Missing MSSQL service code for serviceType='${requestedServiceType}'`);
   }
   return await insertPatientToMssql({
     patientCode: patient.patientCode,
@@ -243,14 +250,38 @@ async function pushNewPatientToMssql(patient: {
     branch: patient.branch,
     locationType: patient.locationType ?? null,
     enteredBy: patient.enteredBy ?? null,
-    serviceCode,
+    serviceCode: serviceCode || undefined,
   });
 }
 
 async function canPushToMssql(user: { id: number; role: string }): Promise<boolean> {
-  if (String(user.role ?? "").toLowerCase() === "admin") return true;
-  const permissions = (await db.getEffectiveUserPermissions(user.id, user.role).catch(() => [])) as string[];
-  return permissions.includes("/ops/mssql-add");
+  const role = String(user.role ?? "").trim().toLowerCase();
+  if (role === "admin") return true;
+  const required = "/ops/mssql-add";
+
+  // Primary check: merged permissions (role defaults + user overrides).
+  try {
+    const effective = await db.getEffectiveUserPermissions(user.id, role);
+    if (Array.isArray(effective) && effective.includes(required)) return true;
+  } catch {
+    // Continue to explicit fallbacks.
+  }
+
+  // Fallbacks: check role defaults and direct user permissions independently.
+  try {
+    const roleDefaults = await db.getRoleDefaultPermissions(role);
+    if (Array.isArray(roleDefaults) && roleDefaults.includes(required)) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    const direct = await db.getUserPermissions(user.id);
+    if (Array.isArray(direct) && direct.includes(required)) return true;
+  } catch {
+    // ignore
+  }
+
+  return false;
 }
 
 export const medicalRouter = router({
@@ -308,7 +339,7 @@ export const medicalRouter = router({
               gender: String((existingByIdentity as any)?.gender ?? "").trim() || null,
               dateOfBirth: (existingByIdentity as any)?.dateOfBirth ?? patientInput.dateOfBirth ?? null,
               branch: String((existingByIdentity as any)?.branch ?? patientInput.branch ?? "examinations").trim() || "examinations",
-              serviceType: patientInput.serviceType || String((existingByIdentity as any)?.serviceType ?? "").trim() || "consultant",
+              serviceType: null,
               locationType:
                 (patientInput.serviceType === "external" ? "external" : patientInput.locationType) ??
                 (String((existingByIdentity as any)?.locationType ?? "").trim() === "external" ? "external" : "center"),
@@ -363,23 +394,16 @@ export const medicalRouter = router({
             gender: (created as any).gender ?? null,
             dateOfBirth: (created as any).dateOfBirth ?? null,
             branch: (created as any).branch ?? "examinations",
-            serviceType: (created as any).serviceType ?? "consultant",
+            serviceType: null,
             locationType: (created as any).locationType ?? "center",
             enteredBy: String((ctx.user as any)?.name ?? (ctx.user as any)?.username ?? "").trim() || null,
           }).catch((error) => {
-            const message = String((error as any)?.message ?? error ?? "unknown");
             console.warn("[mssql-push] createPatient failed", {
               patientCode: String(created.patientCode),
-              message,
+              message: String((error as any)?.message ?? error ?? "unknown"),
             });
-            return { inserted: false, note: message, trNo: null };
+            return null;
           });
-          if (!pushResult?.inserted) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Patient saved locally but MSSQL insert failed for ${String(created.patientCode)}${pushResult?.note ? `: ${pushResult.note}` : ""}`,
-            });
-          }
         }
         await db.logAuditEvent(ctx.user.id, "CREATE_PATIENT", "patient", created?.id ?? 0, {
           message: `Created patient: ${input.fullName}`,
@@ -454,6 +478,11 @@ export const medicalRouter = router({
       return await db.getOpsHealthStatus();
     }),
 
+  getBuildInfo: protectedProcedure
+    .query(async () => {
+      return await getBuildInfo();
+    }),
+
   syncPatientsFromMssql: adminProcedure
     .input(
       z
@@ -486,6 +515,24 @@ export const medicalRouter = router({
   getMssqlSyncStatus: adminProcedure
     .query(async () => {
       return await getMssqlSyncStatus();
+    }),
+
+  backfillMssqlServiceNames: adminProcedure
+    .input(
+      z
+        .object({
+          limit: z.number().int().min(1).max(50000).optional(),
+        })
+        .optional()
+    )
+    .mutation(async ({ input, ctx }) => {
+      const result = await backfillPapatSrvNamesInMssql(input?.limit);
+      await db.logAuditEvent(ctx.user.id, "BACKFILL_MSSQL_PAPAT_SRV_NAMES", "systemSetting", 0, {
+        limit: input?.limit ?? null,
+        updated: result.updated,
+        note: result.note ?? "",
+      });
+      return result;
     }),
 
   getMssqlSyncRuntimeConfig: adminProcedure
@@ -621,7 +668,7 @@ export const medicalRouter = router({
               gender: String((existingByIdentity as any)?.gender ?? "").trim() || null,
               dateOfBirth: (existingByIdentity as any)?.dateOfBirth ?? input.dateOfBirth ?? null,
               branch: String((existingByIdentity as any)?.branch ?? "examinations").trim() || "examinations",
-              serviceType: input.serviceType || String((existingByIdentity as any)?.serviceType ?? "").trim() || "consultant",
+              serviceType: null,
               locationType:
                 (input.serviceType === "external" ? "external" : input.locationType) ??
                 (String((existingByIdentity as any)?.locationType ?? "").trim() === "external" ? "external" : "center"),
@@ -682,24 +729,16 @@ export const medicalRouter = router({
             gender: (created as any).gender ?? null,
             dateOfBirth: (created as any).dateOfBirth ?? null,
             branch: (created as any).branch ?? "examinations",
-            // Ensure MSSQL header + service rows are both created from MySQL create flow.
-            serviceType: (created as any).serviceType ?? "consultant",
+            serviceType: null,
             locationType: (created as any).locationType ?? "center",
             enteredBy: String((ctx.user as any)?.name ?? (ctx.user as any)?.username ?? "").trim() || null,
           }).catch((error) => {
-            const message = String((error as any)?.message ?? error ?? "unknown");
             console.warn("[mssql-push] createPatientFromExamination failed", {
               patientCode: String(created.patientCode),
-              message,
+              message: String((error as any)?.message ?? error ?? "unknown"),
             });
-            return { inserted: false, note: message, trNo: null };
+            return null;
           });
-          if (!pushResult?.inserted) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Patient saved locally but MSSQL insert failed for ${String(created.patientCode)}${pushResult?.note ? `: ${pushResult.note}` : ""}`,
-            });
-          }
         }
         await db.logAuditEvent(ctx.user.id, "CREATE_PATIENT", "patient", created?.id ?? 0, {
           message: `Created patient: ${input.fullName}`,
@@ -1120,8 +1159,7 @@ export const medicalRouter = router({
         serviceCode,
         input.quantity ?? null,
         String(input.doctorCode ?? "").trim() || null,
-        String(input.doctorName ?? "").trim() || null,
-        String((patient as any)?.fullName ?? "").trim() || null
+        String(input.doctorName ?? "").trim() || null
       );
       if (!result.linked) {
         throw new TRPCError({
@@ -1320,50 +1358,6 @@ export const medicalRouter = router({
     .input(z.object({ visitId: z.number() }))
     .query(async ({ input }) => {
       return await db.getPentacamResultsByVisit(input.visitId);
-    }),
-
-  getPentacamFilesByPatient: protectedProcedure
-    .input(z.object({ patientId: z.number(), limit: z.number().int().min(1).max(500).optional() }))
-    .query(async ({ input }) => {
-      return await db.getPentacamFilesByPatient(input.patientId, input.limit ?? 100);
-    }),
-
-  getPentacamFilesRecent: managerProcedure
-    .input(z.object({ limit: z.number().int().min(1).max(1000).optional() }).optional())
-    .query(async ({ input }) => {
-      return await db.getRecentPentacamFiles(input?.limit ?? 200);
-    }),
-
-  getPentacamImportRuntime: adminProcedure
-    .query(async () => {
-      return await getPentacamImportRuntimeStatus();
-    }),
-
-  updatePentacamImportRuntime: adminProcedure
-    .input(
-      z.object({
-        enabled: z.boolean().optional(),
-        sourceDir: z.string().optional(),
-        intervalMs: z.number().int().min(5000).max(60 * 60 * 1000).optional(),
-        useForgeStorage: z.boolean().optional(),
-        localStoreDir: z.string().optional(),
-        publicBasePath: z.string().optional(),
-        archiveProcessed: z.boolean().optional(),
-        archiveDir: z.string().optional(),
-        maxFilesPerRun: z.number().int().min(1).max(5000).optional(),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      const next = await updatePentacamImportRuntimeConfig(input);
-      await db.logAuditEvent(ctx.user.id, "UPDATE_PENTACAM_IMPORT_RUNTIME", "systemSetting", 0, next as any);
-      return { success: true, config: next };
-    }),
-
-  runPentacamImportNow: adminProcedure
-    .mutation(async ({ ctx }) => {
-      const summary = await runPentacamAutoImportOnce();
-      await db.logAuditEvent(ctx.user.id, "RUN_PENTACAM_IMPORT_NOW", "pentacamFile", 0, summary as any);
-      return summary;
     }),
 
   // ============ DOCTOR REPORT ROUTERS ============
@@ -1999,110 +1993,6 @@ export const medicalRouter = router({
       return { success: true };
     }),
 
-  getReadyTemplateOverrides: protectedProcedure
-    .input(z.object({ scope: readyTemplateScopeSchema }))
-    .query(async ({ input }) => {
-      const key = `ready_template_overrides_${input.scope}_v1`;
-      const row = await db.getSystemSetting(key);
-      if (!row?.value) return {} as Record<string, z.infer<typeof readyTemplateOverridePayloadSchema>>;
-      try {
-        const parsed = JSON.parse(row.value);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          return {} as Record<string, z.infer<typeof readyTemplateOverridePayloadSchema>>;
-        }
-        return parsed as Record<string, z.infer<typeof readyTemplateOverridePayloadSchema>>;
-      } catch {
-        return {} as Record<string, z.infer<typeof readyTemplateOverridePayloadSchema>>;
-      }
-    }),
-
-  upsertReadyTemplateOverride: protectedProcedure
-    .input(
-      z.object({
-        scope: readyTemplateScopeSchema,
-        templateId: z.string().min(1),
-        name: z.string().optional(),
-        prescriptionItems: z.array(readyPrescriptionItemSchema).optional(),
-        testItems: z.array(readyTestItemSchema).optional(),
-      })
-    )
-    .mutation(async ({ input }) => {
-      const key = `ready_template_overrides_${input.scope}_v1`;
-      const row = await db.getSystemSetting(key);
-      let current: Record<string, z.infer<typeof readyTemplateOverridePayloadSchema>> = {};
-      if (row?.value) {
-        try {
-          const parsed = JSON.parse(row.value);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            current = parsed;
-          }
-        } catch {
-          current = {};
-        }
-      }
-
-      const nextEntry: z.infer<typeof readyTemplateOverridePayloadSchema> = {
-        ...(current[input.templateId] ?? {}),
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.prescriptionItems !== undefined ? { prescriptionItems: input.prescriptionItems } : {}),
-        ...(input.testItems !== undefined ? { testItems: input.testItems } : {}),
-      };
-
-      const isEmptyName = !String(nextEntry.name ?? "").trim();
-      const isEmptyRx = !Array.isArray(nextEntry.prescriptionItems) || nextEntry.prescriptionItems.length === 0;
-      const isEmptyTests = !Array.isArray(nextEntry.testItems) || nextEntry.testItems.length === 0;
-      if (isEmptyName && isEmptyRx && isEmptyTests) {
-        delete current[input.templateId];
-      } else {
-        current[input.templateId] = nextEntry;
-      }
-
-      await db.updateSystemSettings(key, current);
-      return { success: true };
-    }),
-
-  importReadyTemplateOverrides: protectedProcedure
-    .input(
-      z.object({
-        scope: readyTemplateScopeSchema,
-        templates: z.array(
-          z.object({
-            templateId: z.string().min(1),
-            name: z.string().optional(),
-            prescriptionItems: z.array(readyPrescriptionItemSchema).optional(),
-            testItems: z.array(readyTestItemSchema).optional(),
-          })
-        ),
-      })
-    )
-    .mutation(async ({ input }) => {
-      const key = `ready_template_overrides_${input.scope}_v1`;
-      const row = await db.getSystemSetting(key);
-      let current: Record<string, z.infer<typeof readyTemplateOverridePayloadSchema>> = {};
-      if (row?.value) {
-        try {
-          const parsed = JSON.parse(row.value);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            current = parsed;
-          }
-        } catch {
-          current = {};
-        }
-      }
-
-      for (const item of input.templates) {
-        current[item.templateId] = {
-          ...(current[item.templateId] ?? {}),
-          ...(item.name !== undefined ? { name: item.name } : {}),
-          ...(item.prescriptionItems !== undefined ? { prescriptionItems: item.prescriptionItems } : {}),
-          ...(item.testItems !== undefined ? { testItems: item.testItems } : {}),
-        };
-      }
-
-      await db.updateSystemSettings(key, current);
-      return { success: true, count: input.templates.length };
-    }),
-
   getDoctorDirectory: protectedProcedure.query(async () => {
     const row = await db.getSystemSetting("doctor_directory");
     const fallbackFromUsers = async (): Promise<Array<z.infer<typeof doctorDirectoryEntrySchema>>> => {
@@ -2153,6 +2043,7 @@ export const medicalRouter = router({
       return normalized.data.map((entry) => ({
         ...entry,
         defaultSheet: normalizeServiceDefaultSheet(entry.defaultSheet ?? entry.serviceType, entry.serviceType),
+        srvTyp: inferSrvTyp(entry),
         code: decodeMojibake(entry.code),
         name: decodeMojibake(entry.name),
       }));
@@ -2260,7 +2151,10 @@ export const medicalRouter = router({
       const createdUserId = (user as any)?.insertId ?? 0;
       const createdRole = input.role ?? "reception";
       const roleDefaults = await db.getRoleDefaultPermissions(createdRole);
-      await db.setUserPermissions(createdUserId, roleDefaults);
+      const pageIds = input.writeToMssql
+        ? Array.from(new Set([...roleDefaults, "/ops/mssql-add"]))
+        : roleDefaults;
+      await db.setUserPermissions(createdUserId, pageIds);
       await db.logAuditEvent(ctx.user.id, "CREATE_USER", "user", 0, { username: input.username });
       return { success: true, userId: createdUserId };
     }),

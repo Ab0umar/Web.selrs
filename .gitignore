@@ -20,3 +20,5 @@ backups/*
 !backups/.gitkeep
 
 *.tsbuildinfo
+Dump20260302.sql
+GIT.txt

@@ -8,15 +8,6 @@ const envSchema = z.object({
   OWNER_OPEN_ID: z.string().optional().default(""),
   BUILT_IN_FORGE_API_URL: z.string().optional().default(""),
   BUILT_IN_FORGE_API_KEY: z.string().optional().default(""),
-  PENTACAM_IMPORT_ENABLED: z.string().optional().default(""),
-  PENTACAM_IMPORT_DIR: z.string().optional().default(""),
-  PENTACAM_IMPORT_INTERVAL_MS: z.string().optional().default(""),
-  PENTACAM_IMPORT_USE_FORGE_STORAGE: z.string().optional().default(""),
-  PENTACAM_IMPORT_LOCAL_STORE_DIR: z.string().optional().default(""),
-  PENTACAM_IMPORT_PUBLIC_BASE_PATH: z.string().optional().default(""),
-  PENTACAM_IMPORT_ARCHIVE_PROCESSED: z.string().optional().default(""),
-  PENTACAM_IMPORT_ARCHIVE_DIR: z.string().optional().default(""),
-  PENTACAM_IMPORT_MAX_FILES_PER_RUN: z.string().optional().default(""),
   NODE_ENV: z.enum(["development", "production", "test"]).optional().default("development"),
 });
 
@@ -41,6 +32,4 @@ export const ENV = {
   isProduction: parsed.NODE_ENV === "production",
   forgeApiUrl: parsed.BUILT_IN_FORGE_API_URL,
   forgeApiKey: parsed.BUILT_IN_FORGE_API_KEY,
-  pentacamImportEnabled: parsed.PENTACAM_IMPORT_ENABLED,
-  pentacamImportDir: parsed.PENTACAM_IMPORT_DIR,
 };

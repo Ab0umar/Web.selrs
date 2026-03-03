@@ -14,7 +14,6 @@ import {
   visits,
   examinations,
   pentacamResults,
-  pentacamFiles,
   doctorReports,
   prescriptions,
   prescriptionItems,
@@ -1354,63 +1353,6 @@ export async function getPentacamResultsByVisit(visitId: number) {
   if (!db) throw new Error("Database not available");
 
   return await db.select().from(pentacamResults).where(eq(pentacamResults.visitId, visitId));
-}
-
-export async function createPentacamFileRecord(payload: any) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const result = await db.insert(pentacamFiles).values(payload);
-  return result;
-}
-
-export async function getPentacamFileBySourcePath(sourcePath: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const normalized = String(sourcePath ?? "").trim();
-  if (!normalized) return null;
-  const rows = await db
-    .select()
-    .from(pentacamFiles)
-    .where(eq(pentacamFiles.sourcePath, normalized))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-export async function getPentacamFileByHash(fileHash: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const normalized = String(fileHash ?? "").trim();
-  if (!normalized) return null;
-  const rows = await db
-    .select()
-    .from(pentacamFiles)
-    .where(eq(pentacamFiles.fileHash, normalized))
-    .orderBy(desc(pentacamFiles.importedAt), desc(pentacamFiles.id))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-export async function getPentacamFilesByPatient(patientId: number, limit = 100) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const safeLimit = Math.max(1, Math.min(500, Number(limit || 100)));
-  return await db
-    .select()
-    .from(pentacamFiles)
-    .where(eq(pentacamFiles.patientId, Number(patientId)))
-    .orderBy(desc(pentacamFiles.importedAt), desc(pentacamFiles.id))
-    .limit(safeLimit);
-}
-
-export async function getRecentPentacamFiles(limit = 200) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const safeLimit = Math.max(1, Math.min(1000, Number(limit || 200)));
-  return await db
-    .select()
-    .from(pentacamFiles)
-    .orderBy(desc(pentacamFiles.importedAt), desc(pentacamFiles.id))
-    .limit(safeLimit);
 }
 
 // ============ DOCTOR REPORT OPERATIONS ============
