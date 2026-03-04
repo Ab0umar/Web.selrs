@@ -339,6 +339,8 @@ async function createMssqlPool(): Promise<any> {
   const server = String(process.env.MSSQL_SERVER ?? "").trim();
   const database = String(process.env.MSSQL_DATABASE ?? "").trim();
   const port = Number(process.env.MSSQL_PORT ?? 1433);
+  const connectionTimeout = Number(process.env.MSSQL_CONNECTION_TIMEOUT_MS ?? 5000);
+  const requestTimeout = Number(process.env.MSSQL_REQUEST_TIMEOUT_MS ?? 15000);
 
   if (authMode === "windows") {
     const mssqlV8 = await loadMssqlMsNodeSqlV8Module();
@@ -351,6 +353,8 @@ async function createMssqlPool(): Promise<any> {
     }
     return new mssqlV8.ConnectionPool({
       connectionString,
+      connectionTimeout: Number.isFinite(connectionTimeout) ? connectionTimeout : 5000,
+      requestTimeout: Number.isFinite(requestTimeout) ? requestTimeout : 15000,
       options: {
         trustedConnection: true,
         trustServerCertificate: asBool(process.env.MSSQL_TRUST_SERVER_CERTIFICATE, true),
@@ -370,6 +374,8 @@ async function createMssqlPool(): Promise<any> {
     password,
     database,
     port: Number.isFinite(port) ? port : 1433,
+    connectionTimeout: Number.isFinite(connectionTimeout) ? connectionTimeout : 5000,
+    requestTimeout: Number.isFinite(requestTimeout) ? requestTimeout : 15000,
     options: {
       encrypt: asBool(process.env.MSSQL_ENCRYPT, false),
       trustServerCertificate: asBool(process.env.MSSQL_TRUST_SERVER_CERTIFICATE, true),

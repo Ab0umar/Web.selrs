@@ -1,0 +1,117 @@
+winget install CoreyButler.NVMforWindows
+
+
+  ## npm
+
+  - npm init : Create a package.json for a project.
+  - npm install <pkg> : Install a dependency.
+  - npm install -D <pkg> : Install a dev dependency.
+  - npm install -g <pkg> : Install a package globally.
+  - npm uninstall <pkg> : Remove a dependency.
+  - npm update : Update installed packages (within allowed semver ranges).
+  - npm outdated : Show packages with newer versions available.
+  - npm list : List installed packages.
+  - npm run <script> : Run a script from package.json.
+  - npm test : Run the test script.
+  - npm start : Run the start script.
+  - npm run build : Run the build script.
+  - npm exec <cmd> : Run a command using local project binaries.
+  - npm cache clean --force : Force-clear npm cache.
+  - npm cache verify : Verify/fix npm cache integrity.
+  - npm audit : Scan dependencies for security vulnerabilities.
+  - npm audit fix : Automatically fix vulnerable dependencies when possible.
+  - npm fund : Show funding links for dependencies.
+  - npm pack : Create a tarball of your package.
+  - npm publish : Publish package to npm registry.
+  - npm login : Authenticate to npm registry.
+  - npm whoami : Show currently logged-in npm user.
+  - npm config get <key> : Read npm config value.
+  - npm config set <key> <value> : Set npm config value.
+  - npm version <patch|minor|major> : Bump package version and create tag.
+  - npm ci : Clean install from lockfile (CI/reproducible install).
+  - npm prune : Remove extraneous packages.
+  - npm dedupe : Reduce duplicate packages in dependency tree.
+  - npm doctor : Check npm/node environment health.
+
+  ## npx
+
+  - npx <package> : Run a package command (without permanent install).
+  - npx <package>@latest : Run latest version of a package.
+  - npx --yes <package> : Run package and auto-confirm prompts.
+  - npx -p <package> <command> : Temporarily install package, then run command.
+  - npx create-<tool> <project-name> : Scaffold a new project using generator.
+
+  ## pnpm
+
+  - pnpm init : Create package.json.
+  - pnpm add <pkg> : Add dependency.
+  - pnpm add -D <pkg> : Add dev dependency.
+  - pnpm add -g <pkg> : Add global package.
+  - pnpm remove <pkg> : Remove dependency.
+  - pnpm update : Update dependencies.
+  - pnpm outdated : Show outdated dependencies.
+  - pnpm list : List installed dependencies.
+  - pnpm run <script> : Run script from package.json.
+  - pnpm test : Run test script.
+  - pnpm start : Run start script.
+  - pnpm build : Run build script.
+  - pnpm exec <cmd> : Run command with local binaries.
+  - pnpm dlx <package> : Run package once (like npx).
+  - pnpm store path : Show pnpm content-addressable store path.
+  - pnpm store prune : Remove unreferenced packages from store.
+  - pnpm install : Install dependencies.
+  - pnpm install --frozen-lockfile : Install strictly from lockfile.
+  - pnpm prune : Remove unnecessary packages.
+  - pnpm audit : Security audit dependencies.
+  - pnpm publish : Publish package.
+  - pnpm pack : Create package tarball.
+  - pnpm import : Convert lockfile from npm/yarn to pnpm.
+  - pnpm why <pkg> : Explain why a package is installed.
+
+  ## nvm (Linux/macOS)
+
+  - nvm install <version> : Install a Node.js version.
+  - nvm install --lts : Install latest LTS Node.js.
+  - nvm use <version> : Switch shell to a Node version.
+  - nvm use --lts : Switch to LTS version.
+  - nvm ls : List installed Node versions.
+  - nvm ls-remote : List available remote Node versions.
+  - nvm current : Show currently active Node version.
+  - nvm alias default <version> : Set default Node version for new shells.
+  - nvm alias <name> <version> : Create custom alias.
+  - nvm unalias <name> : Remove alias.
+  - nvm uninstall <version> : Remove installed Node version.
+  - nvm which <version> : Show path to a version’s Node binary.
+  - nvm cache dir : Show nvm cache directory.
+  - nvm cache clear : Clear nvm download cache.
+
+  ## nvm-windows
+
+  - nvm install <version> : Install Node version.
+  - nvm use <version> : Switch active Node version.
+  - nvm list : List installed Node versions.
+  - nvm list available : Show available Node versions online.
+  - nvm current : Show current Node version.
+  - nvm uninstall <version> : Remove Node version.
+  - nvm on : Enable nvm version management.
+  - nvm off : Disable nvm version management.
+  - nvm root <path> : Set nvm installation root path.
+  - nvm version : Show nvm-windows version.
+
+  ## Git (Top 15 + function)
+
+  - git config --global user.name "Your Name" : Set global Git username.
+  - git config --global user.email "you@example.com" : Set global Git email.
+  - git clone <repo-url> : Copy remote repo to local.
+  - git status : Show working tree and staging status.
+  - git add <file> / git add . : Stage changes for commit.
+  - git commit -m "message" : Save staged snapshot as commit.
+  - git pull --rebase : Update branch from remote with linear history.
+  - git push : Upload local commits to remote.
+  - git switch -c <new-branch> : Create and switch to new branch.
+  - git switch <branch> : Switch to existing branch.
+  - git branch : List local branches.
+  - git merge <branch> : Merge branch into current branch.
+  - git log --oneline --graph --decorate --all : Compact visual commit history.
+  - git diff / git diff --staged : Show unstaged/staged code changes.
+  - git stash / git stash pop : Temporarily save and reapply uncommitted changes.

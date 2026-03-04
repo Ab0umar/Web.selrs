@@ -24,6 +24,7 @@ const ConsultantFollowupPage = lazy(() => import("./pages/ConsultantFollowupPage
 const SpecialistSheet = lazy(() => import("./pages/SpecialistSheet"));
 const LasikExamSheet = lazy(() => import("./pages/LasikExamSheet"));
 const LasikFollowupPage = lazy(() => import("./pages/LasikFollowupPage"));
+const OperationSheet = lazy(() => import("./pages/OperationSheet"));
 const ExternalOperationSheet = lazy(() => import("./pages/ExternalOperationSheet"));
 const PentacamSheet = lazy(() => import("./pages/PentacamSheet"));
 const RefractionPage = lazy(() => import("./pages/RefractionPage"));
@@ -43,6 +44,16 @@ const AdminDoctors = lazy(() => import("./pages/AdminDoctors"));
 const SheetCopies = lazy(() => import("./pages/AdminSheetCopies"));
 const ForcePasswordChange = lazy(() => import("./pages/ForcePasswordChange"));
 const Profile = lazy(() => import("./pages/Profile"));
+
+function LegacySurgerySheetRedirect() {
+  useEffect(() => {
+    const match = window.location.pathname.match(/^\/sheets\/surgery\/([^/?#]+)/i);
+    const id = match?.[1];
+    const suffix = window.location.search || "";
+    window.location.replace(id ? `/sheets/operation/${id}${suffix}` : `/sheets/operation${suffix}`);
+  }, []);
+  return null;
+}
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -65,6 +76,8 @@ function Router() {
       <Route path={"/sheets/specialist/:id"} component={() => <ProtectedRoute><SpecialistSheet /></ProtectedRoute>} />
       <Route path={"/sheets/lasik/:id"} component={() => <ProtectedRoute><LasikExamSheet /></ProtectedRoute>} />
       <Route path={"/sheets/lasik/:id/followup"} component={() => <ProtectedRoute><LasikFollowupPage /></ProtectedRoute>} />
+      <Route path={"/sheets/operation/:id"} component={() => <ProtectedRoute><OperationSheet /></ProtectedRoute>} />
+      <Route path={"/sheets/surgery/:id"} component={() => <ProtectedRoute><LegacySurgerySheetRedirect /></ProtectedRoute>} />
       <Route path={"/sheets/external/:id"} component={() => <ProtectedRoute><ExternalOperationSheet /></ProtectedRoute>} />
       <Route path={"/sheets/pentacam"} component={() => <ProtectedRoute><PentacamSheet /></ProtectedRoute>} />
       <Route path={"/sheets/pentacam/:id"} component={() => <ProtectedRoute><PentacamSheet /></ProtectedRoute>} />

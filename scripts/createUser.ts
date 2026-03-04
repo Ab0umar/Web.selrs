@@ -7,7 +7,9 @@ import { users } from "../drizzle/schema";
  * Usage: pnpm create-user <username> <password> [admin|manager|doctor|nurse|technician|reception] [branch]
  */
 async function main() {
-  const [username, password, role = "admin", branch = "examinations"] = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
+  const [username, password, role = "admin", branch = "examinations"] = args;
 
   if (!username || !password) {
     throw new Error("Username and password are required");

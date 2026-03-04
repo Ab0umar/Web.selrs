@@ -66,6 +66,10 @@ async function main() {
   const src = await fs.readFile(SOURCE_FILE, "utf8");
   const arrayLiteral = extractArrayLiteral(src);
   const templates = toTemplates(arrayLiteral);
+  if (!templates.length) {
+    console.log("No ready prescription templates found. Skipping workbook generation.");
+    return;
+  }
 
   const workbook = XLSX.utils.book_new();
   const usedSheetNames = new Set();

@@ -367,11 +367,15 @@ export const medicalRouter = router({
       const { input, ctx } = opts;
       try {
         const { skipIfExists, ...patientInput } = input;
-        const existingByIdentity = await findExistingPatientByNameOrPhone(patientInput.fullName, patientInput.phone);
+        const hasExplicitPatientCode = Boolean(String(patientInput.patientCode ?? "").trim());
+        const existingByIdentity = hasExplicitPatientCode
+          ? null
+          : await findExistingPatientByNameOrPhone(patientInput.fullName, patientInput.phone);
         if (existingByIdentity) {
           const existingId = Number((existingByIdentity as any)?.id ?? 0);
           const existingCode = String((existingByIdentity as any)?.patientCode ?? "").trim();
           let pushResult: { inserted: boolean; note?: string; trNo?: number | null } | null = null;
+          let mssqlPushError: string | null = null;
           if (existingId > 0) {
             await db.updatePatient(existingId, {
               lastVisit: patientInput.lastVisit ? new Date(patientInput.lastVisit) : new Date(),
@@ -400,18 +404,31 @@ export const medicalRouter = router({
                 (patientInput.serviceType === "external" ? "external" : patientInput.locationType) ??
                 (String((existingByIdentity as any)?.locationType ?? "").trim() === "external" ? "external" : "center"),
               enteredBy: String((ctx.user as any)?.name ?? (ctx.user as any)?.username ?? "").trim() || null,
+            }).catch((error) => {
+              mssqlPushError = String((error as any)?.message ?? error ?? "unknown");
+              console.warn("[mssql-push] createPatient(existing) failed", {
+                patientCode: existingCode,
+                message: mssqlPushError,
+              });
+              return null;
             });
-          if (!pushResult?.inserted) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Failed to create new receipt in MSSQL for existing patient ${existingCode}${pushResult?.note ? `: ${pushResult.note}` : ""}`,
-            });
+          if (!pushResult?.inserted && pushResult?.note) {
+            mssqlPushError = pushResult.note;
           }
           await db.logAuditEvent(ctx.user.id, "CREATE_PATIENT_RECEIPT_EXISTING", "patient", existingId, {
             message: `Created new receipt for existing patient (name/phone match): ${String((existingByIdentity as any)?.fullName ?? "")}`,
             patientCode: existingCode,
+            mssqlPushError,
           });
-          return { success: true, reused: true, patientId: existingId, patientCode: existingCode, receiptNo: pushResult?.trNo ?? null };
+          return {
+            success: true,
+            reused: true,
+            patientId: existingId,
+            patientCode: existingCode,
+            receiptNo: pushResult?.trNo ?? null,
+            mssqlLinked: Boolean(pushResult?.inserted),
+            ...(mssqlPushError ? { mssqlWarning: mssqlPushError } : {}),
+          };
         }
         const code =
           patientInput.patientCode && patientInput.patientCode.trim()
