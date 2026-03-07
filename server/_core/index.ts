@@ -2,6 +2,8 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "node:path";
+import { readdir, stat } from "node:fs/promises";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerAuthRoutes } from "./auth";
 import { appRouter } from "../routers";
@@ -34,6 +36,7 @@ async function findAvailablePort(startPort: number = parseInt(process.env.PORT |
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  const pentacamExportsDir = path.resolve(process.cwd(), "Pentacam");
   registerWsServer(server);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
@@ -100,6 +103,44 @@ async function startServer() {
   });
   // Local auth routes
   registerAuthRoutes(app);
+
+  // Local Pentacam exports: list files and serve image assets.
+  app.get("/api/pentacam/exports", async (req, res) => {
+    try {
+      const limitRaw = Number(req.query.limit ?? 500);
+      const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10000, limitRaw)) : 500;
+      const dirEntries = await readdir(pentacamExportsDir, { withFileTypes: true }).catch(() => []);
+      const files: Array<{ name: string; size: number; mtime: string; url: string }> = [];
+
+      for (const entry of dirEntries) {
+        if (!entry.isFile()) continue;
+        const name = String(entry.name ?? "").trim();
+        if (!/\.(jpg|jpeg|png|webp)$/i.test(name)) continue;
+        const fullPath = path.join(pentacamExportsDir, name);
+        const info = await stat(fullPath).catch(() => null);
+        if (!info?.isFile()) continue;
+        files.push({
+          name,
+          size: Number(info.size ?? 0),
+          mtime: new Date(info.mtime).toISOString(),
+          url: `/pentacam-exports/${encodeURIComponent(name)}`,
+        });
+      }
+
+      files.sort((a, b) => Date.parse(b.mtime) - Date.parse(a.mtime));
+      const sliced = files.slice(0, limit);
+      res.status(200).json({ ok: true, count: sliced.length, files: sliced });
+    } catch (error: any) {
+      res.status(500).json({
+        ok: false,
+        count: 0,
+        files: [],
+        error: String(error?.message ?? "Failed to list Pentacam exports"),
+      });
+    }
+  });
+  app.use("/pentacam-exports", express.static(pentacamExportsDir, { maxAge: "1h", fallthrough: true }));
+
   // tRPC API
   app.use(
     "/api/trpc",

@@ -1368,6 +1368,19 @@ export async function getPentacamResultsByPatient(patientId: number, limit = 100
     .limit(safeLimit);
 }
 
+export async function getRecentPentacamResultNotes(limit = 50000) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const safeLimit = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(100000, Number(limit))) : 50000;
+  const rows = await db
+    .select({ notes: pentacamResults.notes })
+    .from(pentacamResults)
+    .orderBy(desc(pentacamResults.createdAt))
+    .limit(safeLimit);
+  return rows.map((row) => String(row.notes ?? ""));
+}
+
 // ============ DOCTOR REPORT OPERATIONS ============
 
 export async function createDoctorReport(reportData: any) {

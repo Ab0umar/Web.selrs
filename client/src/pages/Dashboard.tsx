@@ -49,8 +49,9 @@ export default function Dashboard() {
     const d = String(now.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
   })();
+  const [todayPatientsDate, setTodayPatientsDate] = useState(todayDateIso);
   const todayPatientsQuery = trpc.medical.getTodayPatientsBySheet.useQuery(
-    { date: todayDateIso },
+    { date: todayPatientsDate || todayDateIso },
     {
       enabled: ["doctor", "nurse", "technician", "manager", "admin"].includes(user?.role ?? ""),
       refetchOnWindowFocus: false,
@@ -417,17 +418,33 @@ export default function Dashboard() {
                   <div>
                     <CardTitle className="text-xl">Today Patients</CardTitle>
                     <CardDescription>
-                      تاريخ الزيارة: {todayDateIso} | الإجمالي: {todayTotal}
+                      تاريخ الزيارة: {todayPatientsDate || todayDateIso} | الإجمالي: {todayTotal}
                     </CardDescription>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setTodayPatientsExpanded((prev) => !prev)}
-                  >
-                    {todayPatientsExpanded ? "إخفاء" : "عرض"}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="date"
+                      value={todayPatientsDate}
+                      onChange={(e) => setTodayPatientsDate(e.target.value)}
+                      className="w-[170px]"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTodayPatientsDate(todayDateIso)}
+                    >
+                      Today
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTodayPatientsExpanded((prev) => !prev)}
+                    >
+                      {todayPatientsExpanded ? "إخفاء" : "عرض"}
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               {todayPatientsExpanded && <CardContent>{renderTodayPatientsSection()}</CardContent>}

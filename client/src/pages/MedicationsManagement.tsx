@@ -21,11 +21,13 @@ export default function MedicationsManagement() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const testsFileRef = useRef<HTMLInputElement>(null);
   const diseasesFileRef = useRef<HTMLInputElement>(null);
+  const symptomsFileRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"medications" | "tests" | "diseases">("medications");
+  const [activeTab, setActiveTab] = useState<"medications" | "tests" | "diseases" | "symptoms">("medications");
   const [expandedMeds, setExpandedMeds] = useState<number[]>([]);
   const [expandedTests, setExpandedTests] = useState<number[]>([]);
   const [expandedDiseases, setExpandedDiseases] = useState<number[]>([]);
+  const [expandedSymptoms, setExpandedSymptoms] = useState<string[]>([]);
   const [expandedMedGroups, setExpandedMedGroups] = useState<string[]>([]);
   const [expandedTestGroups, setExpandedTestGroups] = useState<string[]>([]);
   const [expandedDiseaseGroups, setExpandedDiseaseGroups] = useState<string[]>([]);
@@ -53,6 +55,9 @@ export default function MedicationsManagement() {
     refetchOnWindowFocus: false,
   });
   const diseasesQuery = trpc.medical.getAllDiseases.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const symptomsQuery = trpc.medical.getAllSymptoms.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
 
@@ -146,6 +151,36 @@ export default function MedicationsManagement() {
     },
   });
 
+  const createSymptomMutation = trpc.medical.createSymptom.useMutation({
+    onSuccess: () => {
+      toast.success("تم إضافة العرض بنجاح");
+      symptomsQuery.refetch();
+    },
+    onError: (error: unknown) => {
+      toast.error(getTrpcErrorMessage(error, "فشل في إضافة العرض"));
+    },
+  });
+
+  const updateSymptomMutation = trpc.medical.updateSymptom.useMutation({
+    onSuccess: () => {
+      toast.success("تم تحديث العرض بنجاح");
+      symptomsQuery.refetch();
+    },
+    onError: (error: unknown) => {
+      toast.error(getTrpcErrorMessage(error, "فشل في تحديث العرض"));
+    },
+  });
+
+  const deleteSymptomMutation = trpc.medical.deleteSymptom.useMutation({
+    onSuccess: () => {
+      toast.success("تم حذف العرض بنجاح");
+      symptomsQuery.refetch();
+    },
+    onError: (error: unknown) => {
+      toast.error(getTrpcErrorMessage(error, "فشل في حذف العرض"));
+    },
+  });
+
   useEffect(() => {
     if (!isAuthenticated) {
       setLocation("/");
@@ -161,6 +196,7 @@ export default function MedicationsManagement() {
       if (Array.isArray(data.expandedMeds)) setExpandedMeds(data.expandedMeds);
       if (Array.isArray(data.expandedTests)) setExpandedTests(data.expandedTests);
       if (Array.isArray(data.expandedDiseases)) setExpandedDiseases(data.expandedDiseases);
+      if (Array.isArray(data.expandedSymptoms)) setExpandedSymptoms(data.expandedSymptoms);
       if (Array.isArray(data.expandedMedGroups)) setExpandedMedGroups(data.expandedMedGroups);
       if (Array.isArray(data.expandedTestGroups)) setExpandedTestGroups(data.expandedTestGroups);
       if (Array.isArray(data.expandedDiseaseGroups)) setExpandedDiseaseGroups(data.expandedDiseaseGroups);
@@ -176,6 +212,7 @@ export default function MedicationsManagement() {
     if (Array.isArray(data.expandedMeds)) setExpandedMeds(data.expandedMeds);
     if (Array.isArray(data.expandedTests)) setExpandedTests(data.expandedTests);
     if (Array.isArray(data.expandedDiseases)) setExpandedDiseases(data.expandedDiseases);
+    if (Array.isArray(data.expandedSymptoms)) setExpandedSymptoms(data.expandedSymptoms);
     if (Array.isArray(data.expandedMedGroups)) setExpandedMedGroups(data.expandedMedGroups);
     if (Array.isArray(data.expandedTestGroups)) setExpandedTestGroups(data.expandedTestGroups);
     if (Array.isArray(data.expandedDiseaseGroups)) setExpandedDiseaseGroups(data.expandedDiseaseGroups);
@@ -187,6 +224,7 @@ export default function MedicationsManagement() {
       expandedMeds,
       expandedTests,
       expandedDiseases,
+      expandedSymptoms,
       expandedMedGroups,
       expandedTestGroups,
       expandedDiseaseGroups,
@@ -199,13 +237,14 @@ export default function MedicationsManagement() {
     return () => {
       if (userStateTimerRef.current) clearTimeout(userStateTimerRef.current);
     };
-  }, [activeTab, expandedMeds, expandedTests, expandedDiseases, expandedMedGroups, expandedTestGroups, expandedDiseaseGroups, saveUserStateMutation]);
+  }, [activeTab, expandedMeds, expandedTests, expandedDiseases, expandedSymptoms, expandedMedGroups, expandedTestGroups, expandedDiseaseGroups, saveUserStateMutation]);
 
   if (!isAuthenticated) return null;
 
   const medications = (medicationsQuery.data ?? []) as any[];
   const tests = (testsQuery.data ?? []) as any[];
   const diseases = (diseasesQuery.data ?? []) as any[];
+  const symptoms = (symptomsQuery.data ?? []) as Array<{ id: string; name: string }>;
 
   const [newTest, setNewTest] = useState({
     name: "",
@@ -215,6 +254,8 @@ export default function MedicationsManagement() {
 
   const [newDisease, setNewDisease] = useState({ name: "", branch: "", abbrev: "" });
   const [editingDiseaseId, setEditingDiseaseId] = useState<number | null>(null);
+  const [newSymptom, setNewSymptom] = useState({ name: "" });
+  const [editingSymptomId, setEditingSymptomId] = useState<string | null>(null);
 
   const resetForm = () => {
     setNewMedication({
@@ -467,16 +508,76 @@ export default function MedicationsManagement() {
     await deleteDiseaseMutation.mutateAsync({ diseaseId: id });
   };
 
+  const handleSaveSymptom = async () => {
+    if (!newSymptom.name.trim()) {
+      toast.error("يرجى إدخال اسم العرض");
+      return;
+    }
+    if (editingSymptomId) {
+      await updateSymptomMutation.mutateAsync({
+        symptomId: editingSymptomId,
+        name: newSymptom.name.trim(),
+      });
+      setEditingSymptomId(null);
+    } else {
+      await createSymptomMutation.mutateAsync({
+        name: newSymptom.name.trim(),
+      });
+    }
+    setNewSymptom({ name: "" });
+  };
+
+  const handleEditSymptom = (symptom: { id: string; name: string }) => {
+    setNewSymptom({ name: symptom.name ?? "" });
+    setEditingSymptomId(symptom.id);
+  };
+
+  const handleDeleteSymptom = async (symptomId: string) => {
+    if (!window.confirm("هل أنت متأكد من حذف العرض؟")) return;
+    await deleteSymptomMutation.mutateAsync({ symptomId });
+  };
+
+  const handleImportSymptoms = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const data = e.target?.result as ArrayBuffer;
+          const workbook = XLSX.read(data, { type: "array" });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          let imported = 0;
+          for (const row of jsonData as any[]) {
+            const name = row["Name"] || row["name"] || row["اسم العرض"] || row["Symptom"] || row["symptom"] || "";
+            if (!String(name).trim()) continue;
+            await createSymptomMutation.mutateAsync({ name: String(name).trim() });
+            imported += 1;
+          }
+          toast.success(`تم استيراد ${imported} عرض`);
+          if (symptomsFileRef.current) symptomsFileRef.current.value = "";
+        } catch {
+          toast.error("خطأ في استيراد الملف");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } catch {
+      toast.error("خطأ في استيراد الملف");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background" dir="rtl">
       <PageHeader backTo="/dashboard" />
 
       <main className="container mx-auto px-4 py-8">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
+          <TabsList className="grid w-full grid-cols-4 mb-6">
             <TabsTrigger value="medications">الأدوية</TabsTrigger>
             <TabsTrigger value="tests">الفحوصات</TabsTrigger>
             <TabsTrigger value="diseases">الأمراض</TabsTrigger>
+            <TabsTrigger value="symptoms">الأعراض</TabsTrigger>
           </TabsList>
 
           <TabsContent value="medications">
@@ -778,6 +879,68 @@ export default function MedicationsManagement() {
                     </Button>
                     <input ref={diseasesFileRef} type="file" accept=".xlsx,.xls" onChange={handleImportDiseases} className="hidden" />
                     <Button variant="outline" onClick={() => diseasesFileRef.current?.click()}>
+                      <Upload className="h-4 w-4 ml-2" />
+                      استيراد
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="symptoms">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle>قائمة الأعراض</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {symptoms.map((symptom) => (
+                      <div key={symptom.id} className="border rounded-lg p-3">
+                        <div
+                          className="flex items-center justify-between cursor-pointer"
+                          onClick={() => toggleGroup(expandedSymptoms, symptom.id, setExpandedSymptoms)}
+                        >
+                          <div className="font-bold">{symptom.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {expandedSymptoms.includes(symptom.id) ? "" : ""}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <Button size="icon" variant="outline" onClick={() => handleEditSymptom(symptom)}>
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button size="icon" variant="destructive" onClick={() => handleDeleteSymptom(symptom.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    {symptoms.length === 0 && (
+                      <p className="text-center text-muted-foreground">لا توجد أعراض بعد</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="lg:col-span-1">
+                <CardHeader>
+                  <CardTitle>{editingSymptomId ? " " : " "}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Input
+                    value={newSymptom.name}
+                    onChange={(e) => setNewSymptom({ name: e.target.value })}
+                    placeholder="اسم العرض"
+                  />
+                  <div className="flex gap-2">
+                    <Button className="flex-1" onClick={handleSaveSymptom} disabled={createSymptomMutation.isPending}>
+                      <Plus className="h-4 w-4 ml-2" />
+                      {editingSymptomId ? "" : ""}
+                    </Button>
+                    <input ref={symptomsFileRef} type="file" accept=".xlsx,.xls" onChange={handleImportSymptoms} className="hidden" />
+                    <Button variant="outline" onClick={() => symptomsFileRef.current?.click()}>
                       <Upload className="h-4 w-4 ml-2" />
                       استيراد
                     </Button>

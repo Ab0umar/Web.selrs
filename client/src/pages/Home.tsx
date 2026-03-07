@@ -9,6 +9,10 @@ export default function Home() {
   const { loading } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("remember_me") !== "0";
+  });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -23,7 +27,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, rememberMe }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -32,11 +36,18 @@ export default function Home() {
         return;
       }
 
-      if (data?.user) {
-        localStorage.setItem("user", JSON.stringify(data.user));
-      }
-      if (data?.token) {
-        localStorage.setItem("token", String(data.token));
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("remember_me", rememberMe ? "1" : "0");
+        const store = rememberMe ? window.localStorage : window.sessionStorage;
+        const clear = rememberMe ? window.sessionStorage : window.localStorage;
+        clear.removeItem("user");
+        clear.removeItem("token");
+        if (data?.user) {
+          store.setItem("user", JSON.stringify(data.user));
+        }
+        if (data?.token) {
+          store.setItem("token", String(data.token));
+        }
       }
 
       window.location.href = "/dashboard";
@@ -105,6 +116,20 @@ export default function Home() {
                 disabled={submitting}
                 required
               />
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border border-slate-300 bg-slate-50 px-3 py-2">
+              <span className="text-xs text-slate-600">{rememberMe ? "ON" : "OFF"}</span>
+              <label className="flex items-center justify-end gap-2 text-sm font-semibold">
+                <span>Remember me / تذكرني</span>
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-6 w-6 cursor-pointer rounded border-2 border-slate-500 bg-white accent-blue-600"
+                  disabled={submitting}
+                />
+              </label>
             </div>
 
             <Button type="submit" className="w-full" disabled={submitting}>

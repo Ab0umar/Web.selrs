@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, doctorProcedure, nurseProcedure, technicianProcedure, receptionProcedure, managerProcedure, adminProcedure } from "../_core/procedures";
 import { authService } from "../_core/auth";
@@ -60,6 +62,10 @@ const serviceDirectoryEntrySchema = z.object({
 });
 
 const readyTemplateScopeSchema = z.enum(["tests", "prescription"]);
+const symptomDirectoryEntrySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+});
 
 const readyTemplateOverrideUpdateSchema = z.object({
   scope: readyTemplateScopeSchema,
@@ -161,6 +167,534 @@ const decodeMojibake = (value: unknown) => {
     return raw;
   }
 };
+
+function inferPentacamEyeSideFromName(fileName: string): "OD" | "OS" | "" {
+  const match = fileName.match(/(?:^|_)(OD|OS)(?:_|$)/i);
+  if (!match) return "";
+  const side = String(match[1] ?? "").toUpperCase();
+  return side === "OD" || side === "OS" ? side : "";
+}
+
+function inferPentacamCapturedAtFromName(fileName: string): string | null {
+  const match = fileName.match(/_(\d{8})_(\d{6})_/);
+  if (!match) return null;
+  const d = String(match[1] ?? "");
+  const t = String(match[2] ?? "");
+  if (d.length !== 8 || t.length !== 6) return null;
+  let day = Number(d.slice(0, 2));
+  let month = Number(d.slice(2, 4));
+  let year = Number(d.slice(4, 8));
+  // Also support YYYYMMDD naming.
+  if (Number(d.slice(0, 4)) >= 1900 && Number(d.slice(0, 4)) <= 2100) {
+    year = Number(d.slice(0, 4));
+    month = Number(d.slice(4, 6));
+    day = Number(d.slice(6, 8));
+  }
+  const hour = Number(t.slice(0, 2));
+  const minute = Number(t.slice(2, 4));
+  const second = Number(t.slice(4, 6));
+  if (
+    !Number.isFinite(day) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(year) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    !Number.isFinite(second)
+  ) {
+    return null;
+  }
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  return Number.isNaN(parsed.valueOf()) ? null : parsed.toISOString();
+}
+
+function inferPentacamMimeType(fileName: string): string {
+  const ext = path.extname(fileName).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  return "application/octet-stream";
+}
+
+function normalizePentacamMatchText(raw: unknown): string {
+  return String(raw ?? "")
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractPatientCodeCandidatesFromFileName(fileName: string): string[] {
+  const stem = path.parse(String(fileName ?? "")).name;
+  const tokens = stem.split(/[^0-9A-Za-z]+/).filter(Boolean);
+  const timestampMatch = stem.match(/_(\d{8})_(\d{6})_/);
+  const timestampDate = String(timestampMatch?.[1] ?? "");
+  const timestampTime = String(timestampMatch?.[2] ?? "");
+  const out = new Set<string>();
+  const addNumericVariants = (rawDigits: string) => {
+    const digits = String(rawDigits ?? "").trim();
+    if (!/^\d{3,12}$/.test(digits)) return;
+    out.add(digits);
+    const trimmed = digits.replace(/^0+/, "");
+    if (trimmed) out.add(trimmed);
+    out.add(digits.padStart(4, "0"));
+  };
+  for (const token of tokens) {
+    const normalized = String(token ?? "").trim();
+    if (!normalized) continue;
+    // Ignore actual timestamp pieces only when they match the parsed filename timestamp.
+    if (normalized === timestampDate || normalized === timestampTime) continue;
+
+    if (/^\d{3,12}$/.test(normalized)) {
+      addNumericVariants(normalized);
+      continue;
+    }
+
+    // IMAGEnet IDs are often mixed prefix/suffix with numeric code.
+    if (/^[A-Za-z]{1,5}\d{3,12}$/.test(normalized) || /^\d{3,12}[A-Za-z]{1,5}$/.test(normalized)) {
+      out.add(normalized);
+      addNumericVariants(normalized.replace(/\D+/g, ""));
+    }
+  }
+  // Also extract any numeric runs from the stem for ID-only formats.
+  for (const match of stem.matchAll(/(?<!\d)\d{3,12}(?!\d)/g)) {
+    const token = String(match[0] ?? "").trim();
+    if (!token) continue;
+    if (token === timestampDate || token === timestampTime) continue;
+    addNumericVariants(token);
+  }
+  return Array.from(out);
+}
+
+type PentacamPatientCandidate = {
+  patient: any;
+  normalizedNameKeys: string[];
+  tokenSet: Set<string>;
+  tokenSignatureSet: Set<string>;
+};
+
+function normalizePentacamPhoneticToken(token: string): string {
+  const raw = normalizePentacamMatchText(token).replace(/\s+/g, "");
+  if (!raw) return "";
+
+  const arabicMap: Record<string, string> = {
+    "ا": "a", "أ": "a", "إ": "a", "آ": "a", "ء": "",
+    "ؤ": "w", "ئ": "y", "ب": "b", "ت": "t", "ث": "s",
+    "ج": "g", "ح": "h", "خ": "kh", "د": "d", "ذ": "z",
+    "ر": "r", "ز": "z", "س": "s", "ش": "sh", "ص": "s",
+    "ض": "d", "ط": "t", "ظ": "z", "ع": "a", "غ": "g",
+    "ف": "f", "ق": "k", "ك": "k", "ل": "l", "م": "m",
+    "ن": "n", "ه": "h", "ة": "h", "و": "w", "ي": "y", "ى": "y",
+  };
+
+  const mapped = Array.from(raw)
+    .map((ch) => arabicMap[ch] ?? ch)
+    .join("")
+    .toLowerCase();
+
+  const folded = mapped
+    .replace(/ph/g, "f")
+    .replace(/ch/g, "sh");
+
+  const normalizedAbd = folded
+    // Unify Abd El / Abd Al / Abdel* shapes.
+    .replace(/^ab[dt]e?l?/, "abd");
+
+  const signature = normalizedAbd
+    .replace(/[aeiouyw]+/g, "")
+    .replace(/(.)\1+/g, "$1")
+    .replace(/[^a-z0-9]+/g, "");
+
+  if (signature.length >= 2) return signature;
+  return normalizedAbd.replace(/[^a-z0-9]+/g, "");
+}
+
+function buildPentacamTokenSignatureSet(value: string): Set<string> {
+  const out = new Set<string>();
+  const tokens = tokenizePentacamMatchText(value);
+  for (const token of tokens) {
+    const signature = normalizePentacamPhoneticToken(token);
+    if (signature.length >= 2) out.add(signature);
+  }
+  // Also index adjacent token joins to match exports like "abdelfatah" vs "عبد الفتاح".
+  for (let i = 0; i < tokens.length - 1; i += 1) {
+    const joined = `${tokens[i]}${tokens[i + 1]}`;
+    const joinedSignature = normalizePentacamPhoneticToken(joined);
+    if (joinedSignature.length >= 3) out.add(joinedSignature);
+  }
+  return out;
+}
+
+function buildPentacamNameKeys(fullName: string): string[] {
+  const clean = String(fullName ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const parts = clean.split(" ").filter(Boolean);
+  const variants = new Set<string>();
+
+  variants.add(clean);
+  variants.add(reorderPatientNameSecondThirdFirst(clean));
+
+  if (parts.length >= 3) {
+    const first3 = parts.slice(0, 3);
+    variants.add(first3.join(" "));
+    variants.add([first3[1], first3[2], first3[0]].join(" "));
+  }
+
+  if (parts.length >= 4) {
+    const first4 = parts.slice(0, 4);
+    variants.add(first4.join(" "));
+    variants.add([first4[1], first4[2], first4[0], first4[3]].join(" "));
+  }
+
+  return Array.from(variants)
+    .map((value) => normalizePentacamMatchText(value))
+    .filter((value) => value.length >= 4);
+}
+
+function extractPentacamNameFragment(fileName: string): string {
+  const stem = path.parse(String(fileName ?? "")).name;
+  // IMAGEnet: "<name>_<date>_<time>" (often 2nd 3rd 1st).
+  // Pentacam alt: "<name>_OD|OS_<date>_<time>_<suffix>"
+  const withoutSuffix = stem
+    .replace(/_(OD|OS)_\d{8}_\d{6}(?:_.+)?$/i, "")
+    .replace(/_\d{8}_\d{6}(?:_.+)?$/i, "");
+  return normalizePentacamMatchText(withoutSuffix);
+}
+
+function tokenizePentacamMatchText(value: string): string[] {
+  return normalizePentacamMatchText(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+}
+
+async function buildPentacamPatientCandidates(): Promise<{
+  byCode: Map<string, any>;
+  byCodeDigits: Map<string, any>;
+  candidates: PentacamPatientCandidate[];
+}> {
+  const byCode = new Map<string, any>();
+  const byCodeDigits = new Map<string, any>();
+  const candidates: PentacamPatientCandidate[] = [];
+  let cursor: { codeNum: number; patientCode: string; id: number } | undefined = undefined;
+  for (let page = 0; page < 100; page += 1) {
+    const batch = await db.getAllPatients({ limit: 500, cursor });
+    const rows = Array.isArray((batch as any)?.rows) ? (batch as any).rows : [];
+    for (const row of rows) {
+      const patientCode = String((row as any)?.patientCode ?? "").trim();
+      if (patientCode) {
+        byCode.set(patientCode, row);
+        byCode.set(patientCode.toUpperCase(), row);
+        const digits = patientCode.replace(/\D+/g, "");
+        if (/^\d{3,12}$/.test(digits)) {
+          const trimmed = digits.replace(/^0+/, "") || "0";
+          byCodeDigits.set(trimmed, row);
+        }
+      }
+      const fullName = String((row as any)?.fullName ?? "").trim();
+      const keys = buildPentacamNameKeys(fullName);
+      const tokenSet = new Set<string>();
+      const tokenSignatureSet = new Set<string>();
+      for (const key of keys) {
+        for (const token of tokenizePentacamMatchText(key)) tokenSet.add(token);
+        for (const signature of buildPentacamTokenSignatureSet(key)) tokenSignatureSet.add(signature);
+      }
+      candidates.push({
+        patient: row,
+        normalizedNameKeys: keys,
+        tokenSet,
+        tokenSignatureSet,
+      });
+    }
+    if (!(batch as any)?.hasMore) break;
+    cursor = (batch as any)?.nextCursor ?? undefined;
+    if (!cursor) break;
+  }
+  return { byCode, byCodeDigits, candidates };
+}
+
+function resolvePatientForPentacamFileName(
+  fileName: string,
+  matcher: { byCode: Map<string, any>; byCodeDigits: Map<string, any>; candidates: PentacamPatientCandidate[] }
+): { patient: any; matchedBy: string } | null {
+  const codeCandidates = extractPatientCodeCandidatesFromFileName(fileName);
+  for (const candidate of codeCandidates) {
+    const patient =
+      matcher.byCode.get(candidate) ??
+      matcher.byCode.get(candidate.toUpperCase()) ??
+      (() => {
+        const digits = candidate.replace(/\D+/g, "");
+        if (!/^\d{3,12}$/.test(digits)) return null;
+        const trimmed = digits.replace(/^0+/, "") || "0";
+        return matcher.byCodeDigits.get(trimmed) ?? null;
+      })();
+    if (patient) return { patient, matchedBy: `code:${candidate}` };
+  }
+
+  const nameFragment = extractPentacamNameFragment(fileName);
+  if (!nameFragment) return null;
+  const fileTokens = new Set(tokenizePentacamMatchText(nameFragment));
+  if (fileTokens.size < 2) return null;
+  const capturedAtIso = inferPentacamCapturedAtFromName(fileName);
+  const capturedAtMs = capturedAtIso ? Date.parse(capturedAtIso) : NaN;
+  const patientReferenceMs = (patient: any) => {
+    const lastVisitRaw = patient?.lastVisit;
+    const lastVisitMs = lastVisitRaw ? Date.parse(String(lastVisitRaw)) : NaN;
+    if (Number.isFinite(lastVisitMs)) return lastVisitMs;
+    const createdRaw = patient?.createdAt;
+    const createdMs = createdRaw ? Date.parse(String(createdRaw)) : NaN;
+    if (Number.isFinite(createdMs)) return createdMs;
+    return NaN;
+  };
+  const patientDayDiff = (patient: any) => {
+    const refMs = patientReferenceMs(patient);
+    if (!Number.isFinite(capturedAtMs) || !Number.isFinite(refMs)) return Number.POSITIVE_INFINITY;
+    return Math.abs(Math.round((capturedAtMs - refMs) / 86400000));
+  };
+  const patientTieKey = (patient: any) => {
+    const code = String(patient?.patientCode ?? "").trim();
+    if (code) return code;
+    return String(Number(patient?.id ?? 0));
+  };
+
+  // First pass: direct key include (supports 2nd/3rd/1st order keys).
+  let bestInclude: { patient: any; score: number; matchedBy: string; dayDiff: number } | null = null;
+  for (const candidate of matcher.candidates) {
+    for (const nameKey of candidate.normalizedNameKeys) {
+      if (!nameKey || nameKey.length < 4) continue;
+      if (!nameFragment.includes(nameKey)) continue;
+      const keyTokens = tokenizePentacamMatchText(nameKey);
+      if (keyTokens.length < 2) continue;
+      let tokenOverlap = 0;
+      for (const token of keyTokens) {
+        if (fileTokens.has(token)) tokenOverlap += 1;
+      }
+      if (tokenOverlap < 2) continue;
+      const score = nameKey.length;
+      const dayDiff = patientDayDiff(candidate.patient);
+      if (
+        !bestInclude ||
+        score > bestInclude.score ||
+        (score === bestInclude.score && dayDiff < bestInclude.dayDiff) ||
+        (score === bestInclude.score &&
+          dayDiff === bestInclude.dayDiff &&
+          patientTieKey(candidate.patient) < patientTieKey(bestInclude.patient))
+      ) {
+        bestInclude = { patient: candidate.patient, score, matchedBy: `name:${nameKey}`, dayDiff };
+      }
+    }
+  }
+  if (bestInclude) return { patient: bestInclude.patient, matchedBy: bestInclude.matchedBy };
+
+  // Second pass: token overlap for partial names and spacing drift.
+  if (fileTokens.size === 0) return null;
+
+  let bestToken: { patient: any; overlap: number; matchedBy: string; dayDiff: number } | null = null;
+  for (const candidate of matcher.candidates) {
+    let overlap = 0;
+    for (const token of fileTokens) {
+      if (candidate.tokenSet.has(token)) overlap += 1;
+    }
+    if (overlap < 2) continue;
+    const dayDiff = patientDayDiff(candidate.patient);
+    if (
+      !bestToken ||
+      overlap > bestToken.overlap ||
+      (overlap === bestToken.overlap && dayDiff < bestToken.dayDiff) ||
+      (overlap === bestToken.overlap &&
+        dayDiff === bestToken.dayDiff &&
+        patientTieKey(candidate.patient) < patientTieKey(bestToken.patient))
+    ) {
+      bestToken = { patient: candidate.patient, overlap, matchedBy: `tokens:${overlap}`, dayDiff };
+    }
+  }
+  if (bestToken) return { patient: bestToken.patient, matchedBy: bestToken.matchedBy };
+
+  // Third pass: Arabic-English phonetic overlap.
+  const fileTokenSignatures = buildPentacamTokenSignatureSet(nameFragment);
+  if (fileTokenSignatures.size === 0) return null;
+
+  let bestPhonetic: { patient: any; overlap: number; matchedBy: string; dayDiff: number } | null = null;
+  for (const candidate of matcher.candidates) {
+    let overlap = 0;
+    for (const signature of fileTokenSignatures) {
+      if (candidate.tokenSignatureSet.has(signature)) {
+        overlap += 1;
+      }
+    }
+    if (overlap < 2) continue;
+    const dayDiff = patientDayDiff(candidate.patient);
+    if (
+      !bestPhonetic ||
+      overlap > bestPhonetic.overlap ||
+      (overlap === bestPhonetic.overlap && dayDiff < bestPhonetic.dayDiff) ||
+      (overlap === bestPhonetic.overlap &&
+        dayDiff === bestPhonetic.dayDiff &&
+        patientTieKey(candidate.patient) < patientTieKey(bestPhonetic.patient))
+    ) {
+      bestPhonetic = { patient: candidate.patient, overlap, matchedBy: `phonetic:${overlap}`, dayDiff };
+    }
+  }
+
+  if (!bestPhonetic) return null;
+  return { patient: bestPhonetic.patient, matchedBy: bestPhonetic.matchedBy };
+}
+
+function suggestPatientsForPentacamFileName(
+  fileName: string,
+  matcher: { byCode: Map<string, any>; byCodeDigits: Map<string, any>; candidates: PentacamPatientCandidate[] },
+  limit: number = 3
+): Array<{ patient: any; matchedBy: string; score: number }> {
+  const nameFragment = extractPentacamNameFragment(fileName);
+  if (!nameFragment) return [];
+  const fileTokens = new Set(tokenizePentacamMatchText(nameFragment));
+  const fileSignatures = buildPentacamTokenSignatureSet(nameFragment);
+  const capturedAtIso = inferPentacamCapturedAtFromName(fileName);
+  const capturedAtMs = capturedAtIso ? Date.parse(capturedAtIso) : NaN;
+  const scored: Array<{
+    patient: any;
+    matchedBy: string;
+    score: number;
+    includeScore: number;
+    tokenOverlap: number;
+    phoneticOverlap: number;
+    dayDiff: number;
+  }> = [];
+
+  for (const candidate of matcher.candidates) {
+    let includeScore = 0;
+    let includeBy = "";
+    for (const nameKey of candidate.normalizedNameKeys) {
+      if (!nameKey || nameKey.length < 4) continue;
+      if (!nameFragment.includes(nameKey)) continue;
+      if (nameKey.length > includeScore) {
+        includeScore = nameKey.length;
+        includeBy = `name:${nameKey}`;
+      }
+    }
+
+    let tokenOverlap = 0;
+    for (const token of fileTokens) {
+      if (candidate.tokenSet.has(token)) tokenOverlap += 1;
+    }
+
+    let phoneticOverlap = 0;
+    for (const signature of fileSignatures) {
+      if (candidate.tokenSignatureSet.has(signature)) phoneticOverlap += 1;
+    }
+
+    const strongInclude = includeScore >= 6;
+    const goodTokenSignal = tokenOverlap >= 2;
+    const goodPhoneticSignal = phoneticOverlap >= 2;
+    if (!strongInclude && !goodTokenSignal && !goodPhoneticSignal) continue;
+
+    const score = includeScore * 100 + tokenOverlap * 20 + phoneticOverlap * 12;
+    if (score < 24) continue;
+    const lastVisitRaw = (candidate.patient as any)?.lastVisit;
+    const lastVisitMs = lastVisitRaw ? Date.parse(String(lastVisitRaw)) : NaN;
+    const createdRaw = (candidate.patient as any)?.createdAt;
+    const createdMs = createdRaw ? Date.parse(String(createdRaw)) : NaN;
+    const refMs = Number.isFinite(lastVisitMs) ? lastVisitMs : createdMs;
+    const dayDiff =
+      Number.isFinite(capturedAtMs) && Number.isFinite(refMs)
+        ? Math.abs(Math.round((capturedAtMs - refMs) / 86400000))
+        : Number.POSITIVE_INFINITY;
+    const matchedBy =
+      includeBy ||
+      (tokenOverlap > 0 ? `tokens:${tokenOverlap}` : `phonetic:${phoneticOverlap}`);
+    scored.push({
+      patient: candidate.patient,
+      matchedBy,
+      score,
+      includeScore,
+      tokenOverlap,
+      phoneticOverlap,
+      dayDiff,
+    });
+  }
+
+  const hasNearYear = scored.some((entry) => Number.isFinite(entry.dayDiff) && entry.dayDiff <= 365);
+  const hasNearThreeYears = scored.some((entry) => Number.isFinite(entry.dayDiff) && entry.dayDiff <= 365 * 3);
+  const filteredByDate = hasNearYear
+    ? scored.filter((entry) => Number.isFinite(entry.dayDiff) && entry.dayDiff <= 365)
+    : hasNearThreeYears
+      ? scored.filter((entry) => Number.isFinite(entry.dayDiff) && entry.dayDiff <= 365 * 3)
+      : scored;
+
+  filteredByDate.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.dayDiff - b.dayDiff;
+  });
+  const outRaw: Array<{
+    patient: any;
+    matchedBy: string;
+    score: number;
+    includeScore: number;
+    tokenOverlap: number;
+    phoneticOverlap: number;
+    dayDiff: number;
+  }> = [];
+  const seen = new Set<number>();
+  for (const entry of filteredByDate) {
+    const patientId = Number((entry.patient as any)?.id ?? 0);
+    if (!Number.isFinite(patientId) || patientId <= 0) continue;
+    if (seen.has(patientId)) continue;
+    seen.add(patientId);
+    outRaw.push(entry);
+    if (outRaw.length >= limit) break;
+  }
+  if (outRaw.length === 0) return [];
+  if (outRaw.length > 1) {
+    const top = outRaw[0];
+    const second = outRaw[1];
+    const closeScores = second.score >= top.score * 0.92;
+    const closeEvidence =
+      second.includeScore >= top.includeScore - 1 &&
+      second.tokenOverlap >= top.tokenOverlap - 1 &&
+      second.phoneticOverlap >= top.phoneticOverlap - 1;
+    if (closeScores && closeEvidence) return [top].map(({ patient, matchedBy, score }) => ({ patient, matchedBy, score }));
+  }
+  return outRaw.map(({ patient, matchedBy, score }) => ({ patient, matchedBy, score }));
+}
+function reorderPatientNameSecondThirdFirst(rawName: string): string {
+  const clean = rawName.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const parts = clean.split(" ");
+  if (parts.length < 3) return clean;
+  return [parts[1], parts[2], parts[0], ...parts.slice(3)].join(" ").trim();
+}
+
+function sanitizeLabel(rawValue: string): string {
+  return rawValue
+    .replace(/[\\/:*?"<>|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parsePentacamLocalMeta(notes: unknown): null | {
+  kind: string;
+  originalFileName?: string;
+  sourceFileName?: string;
+  storageUrl?: string;
+  mimeType?: string;
+  eyeSide?: string;
+  importStatus?: string;
+  capturedAt?: string | null;
+  importedAt?: string | null;
+} {
+  const raw = String(notes ?? "").trim();
+  if (!raw || raw[0] !== "{") return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (String((parsed as any).kind ?? "") !== "local-pentacam-export-v1") return null;
+    return parsed as any;
+  } catch {
+    return null;
+  }
+}
 
 function normalizeVisitType(raw: string): "consultation" | "examination" | "surgery" | "followup" {
   const value = raw?.trim().toLowerCase();
@@ -1437,20 +1971,371 @@ export const medicalRouter = router({
     .input(z.object({ patientId: z.number(), limit: z.number().optional() }))
     .query(async ({ input }) => {
       const rows = await db.getPentacamResultsByPatient(input.patientId, input.limit ?? 100);
-      return rows.map((row: any) => ({
-        id: row.id,
-        patientId: row.patientId,
-        visitId: row.visitId,
-        eyeSide: "",
-        importStatus: "imported",
-        sourceFileName: `Pentacam ${row.id}`,
-        storageUrl: "",
-        mimeType: "",
-        capturedAt: row.createdAt ?? null,
-        importedAt: row.createdAt ?? null,
-      }));
+      return rows.map((row: any) => {
+        const meta = parsePentacamLocalMeta(row.notes);
+        return {
+          id: row.id,
+          patientId: row.patientId,
+          visitId: row.visitId,
+          eyeSide: meta?.eyeSide ?? "",
+          importStatus: meta?.importStatus ?? "imported",
+          sourceFileName: meta?.sourceFileName ?? `Pentacam ${row.id}`,
+          storageUrl: meta?.storageUrl ?? "",
+          mimeType: meta?.mimeType ?? "",
+          capturedAt: meta?.capturedAt ?? row.createdAt ?? null,
+          importedAt: meta?.importedAt ?? row.createdAt ?? null,
+        };
+      });
     }),
 
+  importLocalPentacamExports: adminProcedure
+    .input(
+      z.object({
+        patientId: z.number().int().positive(),
+        fileNames: z.array(z.string().min(1)).min(1).max(500),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const pentacamExportsDir = path.resolve(process.cwd(), "Pentacam");
+      const patient = await db.getPatientById(input.patientId);
+      if (!patient) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Patient not found" });
+      }
+      const patientCode = String((patient as any).patientCode ?? "").trim();
+      const patientNameOrdered = sanitizeLabel(
+        reorderPatientNameSecondThirdFirst(String((patient as any).fullName ?? ""))
+      );
+      const requested = Array.from(
+        new Set(
+          input.fileNames
+            .map((value) => String(value ?? "").trim())
+            .filter(Boolean)
+        )
+      );
+      if (requested.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No files selected" });
+      }
+
+      const invalidPath = requested.find(
+        (fileName) => fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")
+      );
+      if (invalidPath) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Invalid file name: ${invalidPath}` });
+      }
+
+      const existingRows = await db.getPentacamResultsByPatient(input.patientId, 500);
+      const existingFileNames = new Set<string>();
+      for (const row of existingRows) {
+        const meta = parsePentacamLocalMeta((row as any)?.notes);
+        const source = String(meta?.originalFileName ?? meta?.sourceFileName ?? "").trim().toLowerCase();
+        if (source) existingFileNames.add(source);
+      }
+
+      let imported = 0;
+      let skipped = 0;
+      let missing = 0;
+      for (const fileName of requested) {
+        const lowered = fileName.toLowerCase();
+        if (!/\.(jpg|jpeg|png|webp)$/i.test(fileName)) {
+          skipped += 1;
+          continue;
+        }
+        if (existingFileNames.has(lowered)) {
+          skipped += 1;
+          continue;
+        }
+
+        const absolutePath = path.join(pentacamExportsDir, fileName);
+        try {
+          const s = await stat(absolutePath);
+          if (!s.isFile()) {
+            missing += 1;
+            continue;
+          }
+        } catch {
+          missing += 1;
+          continue;
+        }
+
+        const importedAt = new Date().toISOString();
+        const patientKey = patientCode || String(input.patientId);
+        const labelPrefix = [patientKey, patientNameOrdered].filter(Boolean).join("_");
+        const sourceFileName = patientCode
+          ? `${labelPrefix}_${fileName}`
+          : `${labelPrefix}_${fileName}`;
+        const meta = {
+          kind: "local-pentacam-export-v1",
+          originalFileName: fileName,
+          sourceFileName,
+          storageUrl: `/pentacam-exports/${encodeURIComponent(fileName)}`,
+          mimeType: inferPentacamMimeType(fileName),
+          eyeSide: inferPentacamEyeSideFromName(fileName),
+          importStatus: "imported",
+          capturedAt: inferPentacamCapturedAtFromName(fileName),
+          importedAt,
+        };
+        await db.createPentacamResult({
+          visitId: 0,
+          patientId: input.patientId,
+          recordedBy: ctx.user.id,
+          notes: JSON.stringify(meta),
+        });
+        existingFileNames.add(lowered);
+        imported += 1;
+      }
+
+      await db.logAuditEvent(ctx.user.id, "IMPORT_LOCAL_PENTACAM_EXPORTS", "pentacamResult", input.patientId, {
+        patientId: input.patientId,
+        requested: requested.length,
+        imported,
+        skipped,
+        missing,
+      });
+
+      return {
+        success: true,
+        patientId: input.patientId,
+        requested: requested.length,
+        imported,
+        skipped,
+        missing,
+      };
+    }),
+
+
+  autoImportLocalPentacamExports: adminProcedure
+    .input(
+      z.object({
+        fileNames: z.array(z.string().min(1)).min(1).max(2000),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const pentacamExportsDir = path.resolve(process.cwd(), "Pentacam");
+      const requested = Array.from(
+        new Set(
+          input.fileNames
+            .map((value) => String(value ?? "").trim())
+            .filter(Boolean)
+        )
+      );
+      if (requested.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No files selected" });
+      }
+
+      const invalidPath = requested.find(
+        (fileName) => fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")
+      );
+      if (invalidPath) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Invalid file name: ${invalidPath}` });
+      }
+
+      const matcher = await buildPentacamPatientCandidates();
+      const globalExistingSourceNames = new Set<string>();
+      try {
+        const recentNotes = await db.getRecentPentacamResultNotes(80000);
+        for (const notes of recentNotes) {
+          const meta = parsePentacamLocalMeta(notes);
+          const original = String(meta?.originalFileName ?? "").trim().toLowerCase();
+          const source = String(meta?.sourceFileName ?? "").trim().toLowerCase();
+          if (original) globalExistingSourceNames.add(original);
+          if (source) globalExistingSourceNames.add(source);
+        }
+      } catch {
+        // If global preload fails, continue with patient-level duplicate checks only.
+      }
+      const existingByPatient = new Map<number, Set<string>>();
+      const ensureExistingSet = async (patientId: number) => {
+        if (existingByPatient.has(patientId)) return existingByPatient.get(patientId)!;
+        const rows = await db.getPentacamResultsByPatient(patientId, 1000);
+        const set = new Set<string>();
+        for (const row of rows) {
+          const meta = parsePentacamLocalMeta((row as any)?.notes);
+          const source = String(meta?.originalFileName ?? meta?.sourceFileName ?? "").trim().toLowerCase();
+          if (source) set.add(source);
+        }
+        existingByPatient.set(patientId, set);
+        return set;
+      };
+
+      let imported = 0;
+      let skipped = 0;
+      let missing = 0;
+      let unmatched = 0;
+      const importedByPatient: Record<string, number> = {};
+      const unresolvedFiles: string[] = [];
+
+      for (const fileName of requested) {
+        const lowered = fileName.toLowerCase();
+        if (!/\.(jpg|jpeg|png|webp)$/i.test(fileName)) {
+          skipped += 1;
+          continue;
+        }
+        if (globalExistingSourceNames.has(lowered)) {
+          skipped += 1;
+          continue;
+        }
+
+        const absolutePath = path.join(pentacamExportsDir, fileName);
+        try {
+          const s = await stat(absolutePath);
+          if (!s.isFile()) {
+            missing += 1;
+            continue;
+          }
+        } catch {
+          missing += 1;
+          continue;
+        }
+
+        const matched = resolvePatientForPentacamFileName(fileName, matcher);
+        if (!matched?.patient) {
+          unmatched += 1;
+          if (unresolvedFiles.length < 5000) unresolvedFiles.push(fileName);
+          continue;
+        }
+        const patientId = Number((matched.patient as any)?.id ?? 0);
+        if (!Number.isFinite(patientId) || patientId <= 0) {
+          unmatched += 1;
+          if (unresolvedFiles.length < 5000) unresolvedFiles.push(fileName);
+          continue;
+        }
+
+        const existingSet = await ensureExistingSet(patientId);
+        if (existingSet.has(lowered)) {
+          skipped += 1;
+          continue;
+        }
+
+        const patientCode = String((matched.patient as any).patientCode ?? "").trim();
+        const patientNameOrdered = sanitizeLabel(
+          reorderPatientNameSecondThirdFirst(String((matched.patient as any).fullName ?? ""))
+        );
+        const importedAt = new Date().toISOString();
+        const patientKey = patientCode || String(patientId);
+        const labelPrefix = [patientKey, patientNameOrdered].filter(Boolean).join("_");
+        const sourceFileName = `${labelPrefix}_${fileName}`;
+        const meta = {
+          kind: "local-pentacam-export-v1",
+          originalFileName: fileName,
+          sourceFileName,
+          storageUrl: `/pentacam-exports/${encodeURIComponent(fileName)}`,
+          mimeType: inferPentacamMimeType(fileName),
+          eyeSide: inferPentacamEyeSideFromName(fileName),
+          importStatus: "imported",
+          capturedAt: inferPentacamCapturedAtFromName(fileName),
+          importedAt,
+          matchedBy: matched.matchedBy,
+        };
+        await db.createPentacamResult({
+          visitId: 0,
+          patientId,
+          recordedBy: ctx.user.id,
+          notes: JSON.stringify(meta),
+        });
+        existingSet.add(lowered);
+        globalExistingSourceNames.add(lowered);
+        imported += 1;
+        importedByPatient[String(patientId)] = (importedByPatient[String(patientId)] ?? 0) + 1;
+      }
+
+      await db.logAuditEvent(ctx.user.id, "AUTO_IMPORT_LOCAL_PENTACAM_EXPORTS", "pentacamResult", 0, {
+        requested: requested.length,
+        imported,
+        skipped,
+        missing,
+        unmatched,
+      });
+
+      return {
+        success: true,
+        requested: requested.length,
+        imported,
+        skipped,
+        missing,
+        unmatched,
+        importedByPatient,
+        unresolvedFiles,
+      };
+    }),
+
+  getUnmatchedLocalPentacamSuggestions: adminProcedure
+    .input(
+      z.object({
+        fileNames: z.array(z.string().min(1)).min(1).max(5000),
+        limitPerFile: z.number().int().min(1).max(5).optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const requested = Array.from(
+        new Set(
+          input.fileNames
+            .map((value) => String(value ?? "").trim())
+            .filter(Boolean)
+        )
+      );
+      const matcher = await buildPentacamPatientCandidates();
+      const limitPerFile = Number(input.limitPerFile ?? 3);
+
+      const suggestions: Array<{
+        fileName: string;
+        candidates: Array<{
+          patientId: number;
+          patientCode: string;
+          fullName: string;
+          matchedBy: string;
+          score: number;
+        }>;
+      }> = [];
+
+      for (const fileName of requested) {
+        if (!/\.(jpg|jpeg|png|webp)$/i.test(fileName)) continue;
+        const top = suggestPatientsForPentacamFileName(fileName, matcher, limitPerFile);
+        if (top.length === 0) continue;
+        suggestions.push({
+          fileName,
+          candidates: top.map((entry) => ({
+            patientId: Number((entry.patient as any)?.id ?? 0),
+            patientCode: String((entry.patient as any)?.patientCode ?? ""),
+            fullName: String((entry.patient as any)?.fullName ?? ""),
+            matchedBy: entry.matchedBy,
+            score: entry.score,
+          })),
+        });
+      }
+
+      return {
+        success: true,
+        count: suggestions.length,
+        suggestions,
+      };
+    }),
+
+  searchPentacamPatients: adminProcedure
+    .input(
+      z.object({
+        searchTerm: z.string().min(1),
+        limit: z.number().int().min(1).max(50).optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const rows = await db.searchPatients(String(input.searchTerm ?? "").trim());
+      const limit = Number(input.limit ?? 10);
+      const out: Array<{ patientId: number; patientCode: string; fullName: string }> = [];
+      const seen = new Set<number>();
+      for (const row of rows ?? []) {
+        const patientId = Number((row as any)?.id ?? 0);
+        if (!Number.isFinite(patientId) || patientId <= 0) continue;
+        if (seen.has(patientId)) continue;
+        seen.add(patientId);
+        out.push({
+          patientId,
+          patientCode: String((row as any)?.patientCode ?? ""),
+          fullName: String((row as any)?.fullName ?? ""),
+        });
+        if (out.length >= limit) break;
+      }
+      return out;
+    }),
   // ============ DOCTOR REPORT ROUTERS ============
 
   // Doctor: Create report
@@ -1666,6 +2551,91 @@ export const medicalRouter = router({
     .mutation(async ({ input, ctx }) => {
       await db.deleteDisease(input.diseaseId);
       await db.logAuditEvent(ctx.user.id, "DELETE_DISEASE", "disease", input.diseaseId, { message: "Deleted disease" });
+      return { success: true };
+    }),
+
+  // ============ SYMPTOMS ROUTERS ============
+
+  getAllSymptoms: protectedProcedure.query(async () => {
+    const row = await db.getSystemSetting("symptoms_directory");
+    if (!row?.value) return [] as Array<z.infer<typeof symptomDirectoryEntrySchema>>;
+    try {
+      const parsed = JSON.parse(row.value);
+      const normalized = z.array(symptomDirectoryEntrySchema).safeParse(parsed);
+      if (!normalized.success) return [] as Array<z.infer<typeof symptomDirectoryEntrySchema>>;
+      return normalized.data;
+    } catch {
+      return [] as Array<z.infer<typeof symptomDirectoryEntrySchema>>;
+    }
+  }),
+
+  createSymptom: managerProcedure
+    .input(z.object({ name: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const row = await db.getSystemSetting("symptoms_directory");
+      let current: Array<z.infer<typeof symptomDirectoryEntrySchema>> = [];
+      if (row?.value) {
+        try {
+          const parsed = JSON.parse(row.value);
+          const normalized = z.array(symptomDirectoryEntrySchema).safeParse(parsed);
+          if (normalized.success) current = normalized.data;
+        } catch {
+          current = [];
+        }
+      }
+      const name = String(input.name ?? "").trim();
+      if (!name) return { success: true };
+      if (current.some((item) => String(item.name ?? "").trim().toLowerCase() === name.toLowerCase())) {
+        return { success: true, duplicate: true };
+      }
+      current.push({
+        id: `sym_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name,
+      });
+      await db.updateSystemSettings("symptoms_directory", current);
+      await db.logAuditEvent(ctx.user.id, "CREATE_SYMPTOM", "systemSetting", 0, { message: `Added symptom ${name}` });
+      return { success: true };
+    }),
+
+  updateSymptom: managerProcedure
+    .input(z.object({ symptomId: z.string().min(1), name: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const row = await db.getSystemSetting("symptoms_directory");
+      let current: Array<z.infer<typeof symptomDirectoryEntrySchema>> = [];
+      if (row?.value) {
+        try {
+          const parsed = JSON.parse(row.value);
+          const normalized = z.array(symptomDirectoryEntrySchema).safeParse(parsed);
+          if (normalized.success) current = normalized.data;
+        } catch {
+          current = [];
+        }
+      }
+      const next = current.map((item) =>
+        item.id === input.symptomId ? { ...item, name: String(input.name ?? "").trim() } : item
+      );
+      await db.updateSystemSettings("symptoms_directory", next);
+      await db.logAuditEvent(ctx.user.id, "UPDATE_SYMPTOM", "systemSetting", 0, { symptomId: input.symptomId });
+      return { success: true };
+    }),
+
+  deleteSymptom: managerProcedure
+    .input(z.object({ symptomId: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const row = await db.getSystemSetting("symptoms_directory");
+      let current: Array<z.infer<typeof symptomDirectoryEntrySchema>> = [];
+      if (row?.value) {
+        try {
+          const parsed = JSON.parse(row.value);
+          const normalized = z.array(symptomDirectoryEntrySchema).safeParse(parsed);
+          if (normalized.success) current = normalized.data;
+        } catch {
+          current = [];
+        }
+      }
+      const next = current.filter((item) => item.id !== input.symptomId);
+      await db.updateSystemSettings("symptoms_directory", next);
+      await db.logAuditEvent(ctx.user.id, "DELETE_SYMPTOM", "systemSetting", 0, { symptomId: input.symptomId });
       return { success: true };
     }),
 
@@ -2429,3 +3399,7 @@ export const medicalRouter = router({
       return { success: true };
     }),
 });
+
+
+
+

@@ -3,13 +3,17 @@ import { useLocation, useRoute } from "wouter";
 import PageHeader from "@/components/PageHeader";
 import PatientPicker from "@/components/PatientPicker";
 import PentacamFilesPanel from "@/components/PentacamFilesPanel";
+import LocalPentacamExportsPanel from "@/components/LocalPentacamExportsPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function PentacamSheet() {
   const [, setLocation] = useLocation();
   const [, params] = useRoute("/sheets/pentacam/:id");
   const [patientId, setPatientId] = useState<number>(Number(params?.id ?? 0) || 0);
+  const { user } = useAuth();
+  const isAdmin = String((user as any)?.role ?? "").toLowerCase() === "admin";
 
   useEffect(() => {
     const fromRoute = Number(params?.id ?? 0);
@@ -48,6 +52,7 @@ export default function PentacamSheet() {
           </CardContent>
         </Card>
         <PentacamFilesPanel patientId={patientId} />
+        {isAdmin ? <LocalPentacamExportsPanel patientId={patientId} /> : null}
       </main>
     </div>
   );
