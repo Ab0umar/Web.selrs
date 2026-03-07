@@ -28,6 +28,11 @@ type PatientRow = {
   patientCode?: string;
   fullName?: string;
   treatingDoctor?: string;
+  dateOfBirth?: string | Date | null;
+  age?: number | null;
+  address?: string | null;
+  phone?: string | null;
+  occupation?: string | null;
   serviceType?: ServiceType;
   serviceCode?: string;
   serviceCodes?: string[];
@@ -44,6 +49,11 @@ type PatientRow = {
 type PatientDraft = {
   fullName: string;
   treatingDoctor: string;
+  dateOfBirth: string;
+  age: string;
+  address: string;
+  phone: string;
+  occupation: string;
   serviceType: SheetTypeChoice;
   status: PatientStatus;
 };
@@ -459,6 +469,11 @@ export default function AdminPatients() {
     return {
       fullName: String(patient.fullName ?? ""),
       treatingDoctor: String(patient.treatingDoctor ?? ""),
+      dateOfBirth: patient.dateOfBirth ? String(patient.dateOfBirth).split("T")[0] : "",
+      age: patient.age != null ? String(patient.age) : "",
+      address: String(patient.address ?? ""),
+      phone: String(patient.phone ?? ""),
+      occupation: String(patient.occupation ?? ""),
       serviceType: getRowSheetType(patient),
       status: (patient.status ?? "new") as PatientStatus,
     };
@@ -494,6 +509,11 @@ export default function AdminPatients() {
           patientId: patient.id,
           updates: {
             fullName: next.fullName.trim(),
+            dateOfBirth: next.dateOfBirth || null,
+            age: next.age ? Number(next.age) : null,
+            address: next.address.trim() || null,
+            phone: next.phone.trim() || null,
+            occupation: next.occupation.trim() || null,
             status: next.status,
           },
         });
@@ -502,6 +522,11 @@ export default function AdminPatients() {
           patientId: patient.id,
           updates: {
             fullName: next.fullName.trim(),
+            dateOfBirth: next.dateOfBirth || null,
+            age: next.age ? Number(next.age) : null,
+            address: next.address.trim() || null,
+            phone: next.phone.trim() || null,
+            occupation: next.occupation.trim() || null,
             serviceType: toLegacyServiceType(next.serviceType),
             status: next.status,
           },
@@ -1073,26 +1098,31 @@ export default function AdminPatients() {
           <Table className="text-right">
             <TableHeader>
               <TableRow>
-                <TableHead className="text-right">Code</TableHead>
-                <TableHead className="text-right">Name</TableHead>
-                <TableHead className="text-right">Doctor</TableHead>
-                <TableHead className="text-right">Sheet Type</TableHead>
-                <TableHead className="text-right">Service</TableHead>
-                <TableHead className="text-right">Manual Lock</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="text-right">الاسم</TableHead>
+                <TableHead className="text-right">تاريخ الميلاد</TableHead>
+                <TableHead className="text-right">السن</TableHead>
+                <TableHead className="text-right">العنوان</TableHead>
+                <TableHead className="text-right">الموبايل</TableHead>
+                <TableHead className="text-right">كود العميل</TableHead>
+                <TableHead className="text-right">الوظيفة</TableHead>
+                <TableHead className="text-right">الطبيب</TableHead>
+                <TableHead className="text-right">نوع الشيت</TableHead>
+                <TableHead className="text-right">الخدمة</TableHead>
+                <TableHead className="text-right">القفل اليدوي</TableHead>
+                <TableHead className="text-right">الإجراء</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {patientsQuery.isLoading && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-right text-muted-foreground">
+                  <TableCell colSpan={12} className="text-right text-muted-foreground">
                     Loading patients...
                   </TableCell>
                 </TableRow>
               )}
               {!patientsQuery.isLoading && visiblePatients.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-right text-muted-foreground">
+                  <TableCell colSpan={12} className="text-right text-muted-foreground">
                     No patients found
                   </TableCell>
                 </TableRow>
@@ -1128,12 +1158,52 @@ export default function AdminPatients() {
                 })();
                 return (
                   <TableRow key={String((patient as any).__rowKey ?? patient.id)}>
-                    <TableCell>{patient.patientCode ?? ""}</TableCell>
                     <TableCell>
                       <Input
                         value={draft.fullName}
                         onChange={(e) => setDraftField(patient, "fullName", e.target.value)}
                         className="min-w-[210px]"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="date"
+                        value={draft.dateOfBirth}
+                        onChange={(e) => setDraftField(patient, "dateOfBirth", e.target.value)}
+                        className="min-w-[150px]"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        value={draft.age}
+                        onChange={(e) => setDraftField(patient, "age", e.target.value.replace(/\D+/g, ""))}
+                        className="min-w-[90px]"
+                        dir="ltr"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        value={draft.address}
+                        onChange={(e) => setDraftField(patient, "address", e.target.value)}
+                        className="min-w-[200px]"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        value={draft.phone}
+                        onChange={(e) => setDraftField(patient, "phone", e.target.value.replace(/\D+/g, ""))}
+                        className="min-w-[140px]"
+                        dir="ltr"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {patient.patientCode ?? ""}
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        value={draft.occupation}
+                        onChange={(e) => setDraftField(patient, "occupation", e.target.value)}
+                        className="min-w-[160px]"
                       />
                     </TableCell>
                     <TableCell>

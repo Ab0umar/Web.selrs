@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,6 +16,7 @@ import { matchesServiceCodeOrNameTerm, normalizeServiceCodeForSearch } from "@/l
 import * as XLSX from "xlsx";
 import { trpc } from "@/lib/trpc";
 import PageHeader from "@/components/PageHeader";
+import PatientPicker from "@/components/PatientPicker";
 
 type DoctorDirectoryEntry = {
   id: string;
@@ -1161,6 +1163,11 @@ export default function Patients() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
+        {(user?.role === "admin" || user?.role === "reception" || user?.role === "manager") && (
+          <div className="mb-6">
+            <PatientDataQuickPanel onOpenExamination={() => setLocation("/examination")} />
+          </div>
+        )}
         {/* Search and Add */}
         <div className="mb-6 flex flex-wrap items-center justify-end gap-2 md:gap-3">
           <Button
@@ -1554,6 +1561,275 @@ export default function Patients() {
         </div>
       </main>
     </div>
+  );
+}
+
+function PatientDataQuickPanel({ onOpenExamination }: { onOpenExamination: () => void }) {
+  const normalizeServiceType = (value: unknown): "consultant" | "specialist" | "lasik" | "surgery" | "external" => {
+    const raw = String(value ?? "").trim().toLowerCase();
+    if (raw === "specialist" || raw === "lasik" || raw === "surgery" || raw === "external") return raw;
+    return "consultant";
+  };
+  const formatPatientCode = (value: string) => {
+    const raw = String(value ?? "").trim().toUpperCase();
+    if (!raw) return "";
+    if (/^\d+$/.test(raw)) return raw.padStart(4, "0");
+    return raw.replace(/\s+/g, "");
+  };
+  const calculateAgeFromDob = (dob: string) => {
+    const raw = String(dob ?? "").trim();
+    if (!raw) return "";
+    const date = new Date(`${raw}T00:00:00`);
+    if (Number.isNaN(date.valueOf())) return "";
+    const now = new Date();
+    let age = now.getFullYear() - date.getFullYear();
+    const monthDiff = now.getMonth() - date.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < date.getDate())) {
+      age -= 1;
+    }
+    return age >= 0 ? String(age) : "";
+  };
+
+  const [patientInfo, setPatientInfo] = useState({ id: 0, name: "", code: "" });
+  const [patientDetails, setPatientDetails] = useState({
+    dateOfBirth: "",
+    age: "",
+    address: "",
+    phone: "",
+    job: "",
+  });
+  const [doctorName, setDoctorName] = useState("");
+  const [serviceType, setServiceType] = useState<"consultant" | "specialist" | "lasik" | "surgery" | "external">("consultant");
+  const [visitDate, setVisitDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  const patientQuery = trpc.medical.getPatient.useQuery(
+    { patientId: patientInfo.id },
+    { enabled: Boolean(patientInfo.id), refetchOnWindowFocus: false }
+  );
+  const patientStateQuery = trpc.medical.getPatientPageState.useQuery(
+    { patientId: patientInfo.id, page: "examination" },
+    { enabled: Boolean(patientInfo.id), refetchOnWindowFocus: false }
+  );
+  const createPatientMutation = trpc.medical.createPatient.useMutation();
+  const updatePatientMutation = trpc.medical.updatePatient.useMutation();
+  const savePatientStateMutation = trpc.medical.savePatientPageState.useMutation();
+  const doctorsQuery = trpc.medical.getDoctorDirectory.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const availableDoctors = useMemo(
+    () =>
+      ((doctorsQuery.data ?? []) as Array<{ id: string; name: string; code: string; isActive?: boolean }>)
+        .filter((doctor) => doctor.isActive !== false)
+        .sort((a, b) => String(a.code ?? "").localeCompare(String(b.code ?? ""), "en", { numeric: true })),
+    [doctorsQuery.data]
+  );
+
+  useEffect(() => {
+    if (!patientQuery.data) return;
+    const p = patientQuery.data as any;
+    setPatientInfo({
+      id: p.id ?? 0,
+      name: p.fullName ?? "",
+      code: p.patientCode ?? "",
+    });
+    setPatientDetails({
+      dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth).split("T")[0] : "",
+      age: p.age != null ? String(p.age) : "",
+      address: p.address ?? "",
+      phone: p.phone ?? "",
+      job: p.occupation ?? "",
+    });
+  }, [patientQuery.data]);
+
+  useEffect(() => {
+    const stateData = (patientStateQuery.data as any)?.data;
+    if (!stateData) return;
+    const doctorFromState =
+      String(stateData.doctorName ?? "").trim() ||
+      String(stateData.signatures?.doctor ?? "").trim();
+    if (doctorFromState) setDoctorName(doctorFromState);
+    const visitFromState = String(stateData.visitDate ?? "").trim();
+    if (visitFromState) setVisitDate(visitFromState);
+  }, [patientStateQuery.data]);
+
+  useEffect(() => {
+    setPatientDetails((prev) => ({
+      ...prev,
+      age: calculateAgeFromDob(prev.dateOfBirth),
+    }));
+  }, [patientDetails.dateOfBirth]);
+
+  const handleSave = async () => {
+    try {
+      let targetPatientId = Number(patientInfo.id ?? 0);
+      if (!targetPatientId) {
+        const fullName = String(patientInfo.name ?? "").trim();
+        const phone = String(patientDetails.phone ?? "").trim();
+        if (!fullName) {
+          toast.error("Enter patient name first");
+          return;
+        }
+        if (!phone) {
+          toast.error("Enter patient phone first");
+          return;
+        }
+        const created = await createPatientMutation.mutateAsync({
+          fullName,
+          patientCode: formatPatientCode(patientInfo.code) || undefined,
+          dateOfBirth: patientDetails.dateOfBirth || undefined,
+          age: patientDetails.age ? Number(patientDetails.age) : undefined,
+          phone,
+          address: patientDetails.address || undefined,
+          occupation: patientDetails.job || undefined,
+          branch: "examinations",
+          serviceType,
+          locationType: "center",
+          lastVisit: visitDate || undefined,
+        });
+        targetPatientId = Number((created as any)?.patientId ?? 0);
+        if (!targetPatientId) {
+          toast.error("Failed to create patient");
+          return;
+        }
+        setPatientInfo((prev) => ({
+          ...prev,
+          id: targetPatientId,
+          code: String((created as any)?.patientCode ?? prev.code ?? ""),
+        }));
+      } else {
+        await updatePatientMutation.mutateAsync({
+          patientId: targetPatientId,
+          updates: {
+            patientCode: formatPatientCode(patientInfo.code) || undefined,
+            fullName: patientInfo.name || undefined,
+            dateOfBirth: patientDetails.dateOfBirth || null,
+            age: patientDetails.age ? Number(patientDetails.age) : null,
+            address: patientDetails.address || null,
+            phone: patientDetails.phone || null,
+            occupation: patientDetails.job || null,
+            serviceType,
+          },
+        });
+      }
+      await savePatientStateMutation.mutateAsync({
+        patientId: targetPatientId,
+        page: "examination",
+        data: {
+          doctorName,
+          visitDate,
+          signatures: { doctor: doctorName },
+        },
+      });
+      toast.success("Patient saved");
+    } catch (error) {
+      toast.error(getTrpcErrorMessage(error, "Failed to save patient"));
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-xl">بيانات المريض</CardTitle>
+        <CardDescription>نفس حقول شاشة الفحص</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4" dir="rtl">
+        <PatientPicker
+          onSelect={(patient: any) =>
+            setPatientInfo({
+              id: patient.id,
+              name: patient.fullName ?? "",
+              code: formatPatientCode(patient.patientCode ?? ""),
+            })
+          }
+        />
+
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">الاسم</Label>
+            <Input className="h-9 text-right" value={patientInfo.name} onChange={(e) => setPatientInfo((p) => ({ ...p, name: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">تاريخ الميلاد</Label>
+            <Input className="h-9" type="date" value={patientDetails.dateOfBirth} onChange={(e) => setPatientDetails((p) => ({ ...p, dateOfBirth: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">السن</Label>
+            <Input className="h-9 text-right" value={patientDetails.age} readOnly />
+          </div>
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">الموبايل</Label>
+            <Input className="h-9 text-right" value={patientDetails.phone} onChange={(e) => setPatientDetails((p) => ({ ...p, phone: e.target.value.replace(/\D+/g, "") }))} />
+          </div>
+
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">العنوان</Label>
+            <Input className="h-9 text-right" value={patientDetails.address} onChange={(e) => setPatientDetails((p) => ({ ...p, address: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">الوظيفة</Label>
+            <Input className="h-9 text-right" value={patientDetails.job} onChange={(e) => setPatientDetails((p) => ({ ...p, job: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">كود العميل</Label>
+            <Input
+              value={patientInfo.code}
+              onChange={(e) => setPatientInfo((p) => ({ ...p, code: formatPatientCode(e.target.value) }))}
+              onBlur={(e) => setPatientInfo((p) => ({ ...p, code: formatPatientCode(e.target.value) }))}
+              dir="ltr"
+              className="h-9"
+            />
+          </div>
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">تاريخ الكشف</Label>
+            <Input className="h-9" type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="flex items-center justify-end gap-2">
+            <Label className="text-sm text-right whitespace-nowrap">الطبيب</Label>
+            <div className="w-full max-w-[420px]">
+              <Select value={doctorName} onValueChange={setDoctorName}>
+                <SelectTrigger className="h-9 text-right">
+                  <SelectValue placeholder={doctorsQuery.isLoading ? "Loading doctors..." : "اختر الطبيب"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableDoctors.map((doctor) => (
+                    <SelectItem key={doctor.id} value={doctor.name}>
+                      {doctor.code} - {doctor.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">نوع الشيت</Label>
+            <Select value={serviceType} onValueChange={(value) => setServiceType(normalizeServiceType(value))}>
+              <SelectTrigger className="h-9 text-right">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="consultant">استشاري</SelectItem>
+                <SelectItem value="specialist">اخصائي</SelectItem>
+                <SelectItem value="lasik">ليزك</SelectItem>
+                <SelectItem value="surgery">عمليات</SelectItem>
+                <SelectItem value="external">خارجي</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={handleSave} disabled={createPatientMutation.isPending || updatePatientMutation.isPending || savePatientStateMutation.isPending}>
+            حفظ
+          </Button>
+          <Button variant="outline" onClick={onOpenExamination}>
+            فتح شاشة الفحص
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

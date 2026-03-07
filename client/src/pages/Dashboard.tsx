@@ -1,4 +1,4 @@
-﻿import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
@@ -248,6 +248,7 @@ export default function Dashboard() {
 
   const { cards, adminCards } = getDashboardCards();
   const isReception = user?.role === "reception";
+  const showPatientDataPanel = user?.role === "reception" || user?.role === "admin";
   const canSeeTodayPatients = ["doctor", "nurse", "technician", "manager", "admin"].includes(user?.role ?? "");
   const [todayPatientsExpanded, setTodayPatientsExpanded] = useState(user?.role !== "admin");
   const mainOrder = [
@@ -405,8 +406,8 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-8">
-        <div className={isReception ? "space-y-6" : ""} dir="rtl">
-          {isReception && (
+        <div className={showPatientDataPanel ? "space-y-6" : ""} dir="rtl">
+          {showPatientDataPanel && (
             <div className="w-full">
               <ReceptionPatientInfoPanel onOpenExamination={() => setLocation("/examination")} />
             </div>
@@ -523,6 +524,11 @@ export default function Dashboard() {
 }
 
 function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: () => void }) {
+  const normalizeServiceType = (value: unknown): "consultant" | "specialist" | "lasik" | "surgery" | "external" => {
+    const raw = String(value ?? "").trim().toLowerCase();
+    if (raw === "specialist" || raw === "lasik" || raw === "surgery" || raw === "external") return raw;
+    return "consultant";
+  };
   const formatPatientCode = (value: string) => {
     const raw = String(value ?? "").trim().toUpperCase();
     if (!raw) return "";
@@ -551,6 +557,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
     job: "",
   });
   const [doctorName, setDoctorName] = useState("");
+  const [serviceType, setServiceType] = useState<"consultant" | "specialist" | "lasik" | "surgery" | "external">("consultant");
   const [serviceFlags, setServiceFlags] = useState({
     consultation: false,
     examination: false,
@@ -659,7 +666,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
           address: patientDetails.address || undefined,
           occupation: patientDetails.job || undefined,
           branch: "examinations",
-          serviceType: "consultant",
+          serviceType,
           locationType: "center",
           lastVisit: visitDate || undefined,
         });
@@ -684,6 +691,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
             address: patientDetails.address || null,
             phone: patientDetails.phone || null,
             occupation: patientDetails.job || null,
+            serviceType,
           },
         });
       }
@@ -738,7 +746,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
           </div>
           <div className="grid grid-cols-[90px_1fr] items-center gap-1">
             <Label className="text-sm text-right">الموبايل</Label>
-            <Input className="h-9 text-right" value={patientDetails.phone} onChange={(e) => setPatientDetails((p) => ({ ...p, phone: e.target.value }))} />
+            <Input className="h-9 text-right" value={patientDetails.phone} onChange={(e) => setPatientDetails((p) => ({ ...p, phone: e.target.value.replace(/\D+/g, "") }))} />
           </div>
 
           <div className="grid grid-cols-[90px_1fr] items-center gap-1">
@@ -833,6 +841,21 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
             </div>
           </div>
           <div className="grid grid-cols-[90px_1fr] items-center gap-1">
+            <Label className="text-sm text-right">نوع الشيت</Label>
+            <Select value={serviceType} onValueChange={(value) => setServiceType(normalizeServiceType(value))}>
+              <SelectTrigger className="h-9 text-right">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="consultant">استشاري</SelectItem>
+                <SelectItem value="specialist">اخصائي</SelectItem>
+                <SelectItem value="lasik">ليزك</SelectItem>
+                <SelectItem value="surgery">عمليات</SelectItem>
+                <SelectItem value="external">خارجي</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
             <Label className="text-sm text-right">تاريخ الكشف</Label>
             <Input className="h-9" type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} />
           </div>
@@ -850,6 +873,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
     </Card>
   );
 }
+
 
 
 

@@ -114,8 +114,8 @@ export default function ConsultantFollowupPage() {
           <PatientPicker initialPatientId={initialPatientId} onSelect={onPickPatient} readOnly />
         </div>
 
-        <div className="followup-print-root p-1 bg-white text-slate-900" dir="ltr" style={{ fontFamily: '"Times New Roman", Tahoma, Arial, sans-serif' }}>
-          <div className="mb-2 flex items-center justify-between text-[15px] px-1 print:text-[13px]">
+        <div className="followup-print-root p-1 print:p-0 bg-white text-slate-900" dir="ltr" style={{ fontFamily: '"Times New Roman", Tahoma, Arial, sans-serif' }}>
+          <div className="mb-2 print:mb-1 flex items-center justify-between text-[15px] px-1 print:px-0 print:text-[13px]">
             <div className="whitespace-nowrap">{followupLabels.rtLabel}: {operationEyes.right ? "" : "..."} &nbsp;&nbsp; {followupLabels.ltLabel}: {operationEyes.left ? "" : "..."} &nbsp; //</div>
             <div className="whitespace-nowrap">{followupLabels.operationTypeLabel}: <Input value={operationType} onChange={(e) => setOperationType(e.target.value)} className="inline-block w-40 h-7 text-xs mx-1" /></div>
             <div className="whitespace-nowrap">{followupLabels.operationDateLabel}
@@ -125,15 +125,15 @@ export default function ConsultantFollowupPage() {
           </div>
 
           {followups.map((f) => (
-            <table key={f.id} className="w-full border border-black/70 border-collapse text-[15px] table-fixed mb-2 print:text-[12px]" style={{ marginBottom: `${followupLabels.tableGapMm}mm` }}>
+            <table key={f.id} className="w-full border border-black/70 border-collapse text-[15px] table-fixed print:text-[12px]" style={{ marginBottom: `${followupLabels.tableGapMm}mm` }}>
               <colgroup>
                 <col style={{ width: "14%" }} /><col style={{ width: "14%" }} /><col style={{ width: "12%" }} /><col style={{ width: "12%" }} /><col style={{ width: "12%" }} /><col style={{ width: "12%" }} /><col style={{ width: "12%" }} /><col style={{ width: "12%" }} />
               </colgroup>
               <tbody>
                 <tr>
-                  <td colSpan={2} className="border border-black/50 px-1 py-0.5 text-center">{followupLabels.nextFollowupLabel} <span className="mx-2">/  /</span></td>
-                  <td colSpan={3} className="border border-black/50 px-1 py-0.5 text-center font-semibold"><Input value={f.type} onChange={(e) => setFollowups((prev) => prev.map((x) => x.id === f.id ? { ...x, type: e.target.value } : x))} className="h-7 text-xs" /></td>
-                  <td colSpan={3} className="border border-black/50 px-1 py-0.5 text-center">{followupLabels.followupDateLabel} <Input type="date" value={f.date} onChange={(e) => setFollowups((prev) => prev.map((x) => x.id === f.id ? { ...x, date: e.target.value } : x))} className="inline-block w-32 h-7 text-xs mx-1" /></td>
+                  <td colSpan={2} className="border border-black/50 px-1 py-0.5 print:py-0 text-center">{followupLabels.nextFollowupLabel} <span className="mx-2 print:mx-1">/  /</span></td>
+                  <td colSpan={3} className="border border-black/50 px-1 py-0.5 print:py-0 text-center font-semibold"><Input value={f.type} onChange={(e) => setFollowups((prev) => prev.map((x) => x.id === f.id ? { ...x, type: e.target.value } : x))} className="h-7 text-xs" /></td>
+                  <td colSpan={3} className="border border-black/50 border-r-0 px-1 py-0.5 print:py-0 text-center">{followupLabels.followupDateLabel} <Input type="date" value={f.date} onChange={(e) => setFollowups((prev) => prev.map((x) => x.id === f.id ? { ...x, date: e.target.value } : x))} className="inline-block w-32 h-7 text-xs mx-1" /></td>
                 </tr>
                 <tr>
                   <td colSpan={8} className="border border-black/50 py-0.5 text-center font-semibold">Dominant eye _____________</td>
@@ -141,47 +141,47 @@ export default function ConsultantFollowupPage() {
                 <tr>
                   <td colSpan={2} className="border border-black/50 py-0.5"></td>
                   <td colSpan={3} className="border border-black/50 py-0.5 text-center font-semibold">OD</td>
-                  <td colSpan={3} className="border border-black/50 py-0.5 text-center font-semibold">OS</td>
+                  <td colSpan={3} className="border border-black/50 border-r-0 py-0.5 text-center font-semibold">OS</td>
                 </tr>
                 <tr>
-                  <td colSpan={2} className="border border-black/50 py-1 text-center font-semibold">{followupLabels.vaLabel}</td>
-                  <td colSpan={3} className="border border-black/50 py-1"></td>
-                  <td colSpan={3} className="border border-black/50 py-1"></td>
+                  <td colSpan={2} className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">{followupLabels.vaLabel}</td>
+                  <td colSpan={3} className="border border-black/50 border-r-0 py-1 print:py-0.5"></td>
+                  <td colSpan={3} className="border border-black/50 py-1 print:py-0.5"></td>
                 </tr>
                 <tr>
-                  <td colSpan={2} className="border border-black/50 py-1 text-center font-semibold">{followupLabels.refractionLabel}</td>
-                  <td className="border border-black/50 py-1 text-center font-semibold">S</td>
-                  <td className="border border-black/50 py-1 text-center font-semibold">C</td>
-                  <td className="border border-black/50 py-1 text-center font-semibold">A</td>
-                  <td className="border border-black/50 py-1 text-center font-semibold">S</td>
-                  <td className="border border-black/50 py-1 text-center font-semibold">C</td>
-                  <td className="border border-black/50 py-1 text-center font-semibold">A</td>
+                  <td colSpan={2} className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">{followupLabels.refractionLabel}</td>
+                  <td className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">S</td>
+                  <td className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">C</td>
+                  <td className="border border-black/50 border-r-0 py-1 print:py-0.5 text-center font-semibold">A</td>
+                  <td className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">S</td>
+                  <td className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">C</td>
+                  <td className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">A</td>
                 </tr>
                 <tr>
-                  <td colSpan={2} className="border border-black/50 py-1"></td>
-                  <td className="border border-black/50 h-8">&nbsp;</td><td className="border border-black/50 h-8">&nbsp;</td><td className="border border-black/50 h-8">&nbsp;</td><td className="border border-black/50 h-8">&nbsp;</td><td className="border border-black/50 h-8">&nbsp;</td><td className="border border-black/50 h-8">&nbsp;</td>
+                  <td colSpan={2} className="border border-black/50 py-1 print:py-0.5"></td>
+                  <td className="border border-black/50 border-r-0 h-8 print:h-4">&nbsp;</td><td className="border border-black/50 h-8 print:h-4">&nbsp;</td><td className="border border-black/50 h-8 print:h-4">&nbsp;</td><td className="border border-black/50 h-8 print:h-4">&nbsp;</td><td className="border border-black/50 h-8 print:h-4">&nbsp;</td><td className="border border-black/50 h-8 print:h-4">&nbsp;</td>
                 </tr>
                 <tr>
-                  <td rowSpan={2} className="border border-black/50 py-1 text-center font-semibold">{followupLabels.flapLabel}</td>
-                  <td className="border border-black/50 py-1 text-center font-semibold">{followupLabels.edgesLabel}</td>
-                  <td colSpan={6} className="border border-black/50 py-1"></td>
+                  <td rowSpan={2} className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">{followupLabels.flapLabel}</td>
+                  <td className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">{followupLabels.edgesLabel}</td>
+                  <td colSpan={6} className="border border-black/50 border-r-0 py-1 print:py-0.5"></td>
                 </tr>
                 <tr>
-                  <td className="border border-black/50 py-1 text-center font-semibold">{followupLabels.bedLabel}</td>
-                  <td colSpan={6} className="border border-black/50 py-1"></td>
+                  <td className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">{followupLabels.bedLabel}</td>
+                  <td colSpan={6} className="border border-black/50 border-r-0 py-1 print:py-0.5"></td>
                 </tr>
                 <tr>
-                  <td colSpan={2} className="border border-black/50 py-1 text-center font-semibold">{followupLabels.iopLabel}</td>
-                  <td colSpan={6} className="border border-black/50 py-1"></td>
+                  <td colSpan={2} className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">{followupLabels.iopLabel}</td>
+                  <td colSpan={6} className="border border-black/50 border-r-0 py-1 print:py-0.5"></td>
                 </tr>
                 <tr>
-                  <td colSpan={2} className="border border-black/50 py-1 text-center font-semibold">{followupLabels.treatmentLabel}</td>
-                  <td colSpan={6} className="border border-black/50 py-1"></td>
+                  <td colSpan={2} className="border border-black/50 py-1 print:py-0.5 text-center font-semibold">{followupLabels.treatmentLabel}</td>
+                  <td colSpan={6} className="border border-black/50 border-r-0 py-1 print:py-0.5"></td>
                 </tr>
                 <tr>
-                  <td colSpan={2} className="border border-black/50 px-1 py-0.5 text-right font-semibold">{followupLabels.receptionLabel}</td>
-                  <td colSpan={3} className="border border-black/50 px-1 py-0.5 text-right font-semibold">{followupLabels.nurseLabel}</td>
-                  <td colSpan={3} className="border border-black/50 px-1 py-0.5 text-right font-semibold">{followupLabels.doctorLabel}{signatures.doctor ? `: ${signatures.doctor}` : ""}</td>
+                  <td colSpan={2} className="border border-black/50 px-1 py-0.5 print:py-0 text-right font-semibold">{followupLabels.receptionLabel}</td>
+                  <td colSpan={3} className="border border-black/50 px-1 py-0.5 print:py-0 text-right font-semibold">{followupLabels.nurseLabel}</td>
+                  <td colSpan={3} className="border border-black/50 border-r-0 px-1 py-0.5 print:py-0 text-right font-semibold">{followupLabels.doctorLabel}{signatures.doctor ? `: ${signatures.doctor}` : ""}</td>
                 </tr>
               </tbody>
             </table>
