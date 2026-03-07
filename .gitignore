@@ -22,3 +22,6 @@ backups/*
 *.tsbuildinfo
 Dump20260302.sql
 GIT.txt
+
+# Local Pentacam export images (keep local, never track)
+Pentacam/
