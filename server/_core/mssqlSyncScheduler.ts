@@ -32,7 +32,8 @@ async function getRuntimeConfig(): Promise<SyncRuntimeConfig> {
   try {
     const row = await db.getSystemSetting("mssql_sync_runtime_v1");
     const raw = row?.value ? JSON.parse(String(row.value)) : {};
-    const enabled = typeof raw?.enabled === "boolean" ? raw.enabled : envEnabled;
+    // Hard env override: when explicitly disabled in env, ignore DB runtime toggle.
+    const enabled = envEnabled ? (typeof raw?.enabled === "boolean" ? raw.enabled : envEnabled) : false;
     const intervalMs = toNumber(raw?.intervalMs, envInterval, 5_000, 3_600_000);
     const limit = toNumber(raw?.limit, envLimit, 1, 20_000);
     const incremental =
