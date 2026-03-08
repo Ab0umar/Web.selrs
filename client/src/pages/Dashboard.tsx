@@ -719,145 +719,183 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
         <CardDescription>حقول الفحص مع المدخلات</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4" dir="rtl">
-        <PatientPicker
-          onSelect={(patient) =>
-            setPatientInfo({
-              id: patient.id,
-              name: patient.fullName ?? "",
-              code: formatPatientCode(patient.patientCode ?? ""),
-            })
-          }
-        />
+        <div className="mb-2 flex justify-end">
+          <PatientPicker
+            onSelect={(patient) =>
+              setPatientInfo({
+                id: patient.id,
+                name: patient.fullName ?? "",
+                code: formatPatientCode(patient.patientCode ?? ""),
+              })
+            }
+          />
+        </div>
 
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
-            <Label className="text-sm text-right">كود العميل</Label>
-            <Input
-              value={patientInfo.code}
-              onChange={(e) => setPatientInfo((p) => ({ ...p, code: formatPatientCode(e.target.value) }))}
-              onBlur={(e) => setPatientInfo((p) => ({ ...p, code: formatPatientCode(e.target.value) }))}
-              dir="ltr"
-              className="h-9"
-            />
-          </div>
-          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
-            <Label className="text-sm text-right">الاسم</Label>
-            <Input className="h-9 text-right" value={patientInfo.name} onChange={(e) => setPatientInfo((p) => ({ ...p, name: e.target.value }))} />
-          </div>
-          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
-            <Label className="text-sm text-right">الموبايل</Label>
-            <Input className="h-9 text-right" value={patientDetails.phone} onChange={(e) => setPatientDetails((p) => ({ ...p, phone: e.target.value.replace(/\D+/g, "") }))} />
-          </div>
-
-          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
-            <Label className="text-sm text-right">تاريخ الميلاد</Label>
-            <Input className="h-9" type="date" value={patientDetails.dateOfBirth} onChange={(e) => setPatientDetails((p) => ({ ...p, dateOfBirth: e.target.value }))} />
-          </div>
-          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
-            <Label className="text-sm text-right">السن</Label>
-            <Input className="h-9 text-right" value={patientDetails.age} readOnly />
-          </div>
-          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
-            <Label className="text-sm text-right">العنوان</Label>
-            <Input className="h-9 text-right" value={patientDetails.address} onChange={(e) => setPatientDetails((p) => ({ ...p, address: e.target.value }))} />
-          </div>
-
-          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
-            <Label className="text-sm text-right">الوظيفة</Label>
-            <Input className="h-9 text-right" value={patientDetails.job} onChange={(e) => setPatientDetails((p) => ({ ...p, job: e.target.value }))} />
-          </div>
-          <div className="xl:col-span-2 space-y-2">
-            <div className="flex items-center justify-end gap-2">
-              <Label className="text-sm text-right whitespace-nowrap">الطبيب</Label>
-              <div className="w-full max-w-[420px]">
-                <Select value={doctorName} onValueChange={setDoctorName}>
-                  <SelectTrigger className="h-9 text-right">
-                    <SelectValue placeholder={doctorsQuery.isLoading ? "Loading doctors..." : "اختر الطبيب"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableDoctors.map((doctor) => (
-                      <SelectItem key={doctor.id} value={doctor.name}>
-                        {doctor.code} - {doctor.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+        <div className="space-y-3 text-xs" dir="rtl" style={{ textAlign: "center" }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">الاسم</Label>
+              <Input
+                className="text-xs border-0 flex-1 min-w-0"
+                style={{ textAlign: "right" }}
+                value={patientInfo.name}
+                onChange={(e) => setPatientInfo((p) => ({ ...p, name: e.target.value }))}
+              />
             </div>
-            <div className="w-full">
-              <div className="flex items-center justify-end gap-3 flex-wrap">
-                <label className="inline-flex items-center gap-1 text-sm whitespace-nowrap flex-row-reverse">
-                  <Checkbox
-                    checked={serviceFlags.consultation}
-                    onCheckedChange={(checked) =>
-                      setServiceFlags((prev) => ({ ...prev, consultation: Boolean(checked) }))
-                    }
-                  />
-                  كشف
-                  <Input
-                    value={serviceNotes.consultation}
-                    onChange={(e) =>
-                      setServiceNotes((prev) => ({ ...prev, consultation: e.target.value }))
-                    }
-                    className="h-8 w-36 mr-1"
-                    placeholder="تفاصيل كشف"
-                  />
-                </label>
-                <label className="inline-flex items-center gap-1 text-sm whitespace-nowrap flex-row-reverse">
-                  <Checkbox
-                    checked={serviceFlags.examination}
-                    onCheckedChange={(checked) =>
-                      setServiceFlags((prev) => ({ ...prev, examination: Boolean(checked) }))
-                    }
-                  />
-                  فحص
-                  <Input
-                    value={serviceNotes.examination}
-                    onChange={(e) =>
-                      setServiceNotes((prev) => ({ ...prev, examination: e.target.value }))
-                    }
-                    className="h-8 w-36 mr-1"
-                    placeholder="تفاصيل فحص"
-                  />
-                </label>
-                <label className="inline-flex items-center gap-1 text-sm whitespace-nowrap flex-row-reverse">
-                  <Checkbox
-                    checked={serviceFlags.imaging}
-                    onCheckedChange={(checked) =>
-                      setServiceFlags((prev) => ({ ...prev, imaging: Boolean(checked) }))
-                    }
-                  />
-                  اشعه
-                  <Input
-                    value={serviceNotes.imaging}
-                    onChange={(e) =>
-                      setServiceNotes((prev) => ({ ...prev, imaging: e.target.value }))
-                    }
-                    className="h-8 w-36 mr-1"
-                    placeholder="تفاصيل اشعه"
-                  />
-                </label>
-              </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">تاريخ الميلاد</Label>
+              <Input
+                className="text-xs border-0 flex-1 min-w-0"
+                style={{ textAlign: "right" }}
+                type="date"
+                value={patientDetails.dateOfBirth}
+                onChange={(e) => setPatientDetails((p) => ({ ...p, dateOfBirth: e.target.value }))}
+              />
+            </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">السن</Label>
+              <Input className="text-xs border-0 flex-1 min-w-0" style={{ textAlign: "right" }} value={patientDetails.age} readOnly />
             </div>
           </div>
-          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
-            <Label className="text-sm text-right">نوع الشيت</Label>
-            <Select value={serviceType} onValueChange={(value) => setServiceType(normalizeServiceType(value))}>
-              <SelectTrigger className="h-9 text-right">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="consultant">استشاري</SelectItem>
-                <SelectItem value="specialist">اخصائي</SelectItem>
-                <SelectItem value="lasik">ليزك</SelectItem>
-                <SelectItem value="surgery">عمليات</SelectItem>
-                <SelectItem value="external">خارجي</SelectItem>
-              </SelectContent>
-            </Select>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full">
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">العنوان</Label>
+              <Input
+                className="text-xs border-0 flex-1 min-w-0"
+                style={{ textAlign: "right" }}
+                value={patientDetails.address}
+                onChange={(e) => setPatientDetails((p) => ({ ...p, address: e.target.value }))}
+              />
+            </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">الموبايل</Label>
+              <Input
+                className="text-xs border-0 flex-1 min-w-0"
+                style={{ textAlign: "right" }}
+                value={patientDetails.phone}
+                onChange={(e) => setPatientDetails((p) => ({ ...p, phone: e.target.value.replace(/\D+/g, "") }))}
+              />
+            </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">كود العميل</Label>
+              <Input
+                className="text-xs border-0 flex-1 min-w-0"
+                style={{ textAlign: "right" }}
+                value={patientInfo.code}
+                onChange={(e) => setPatientInfo((p) => ({ ...p, code: formatPatientCode(e.target.value) }))}
+                onBlur={(e) => setPatientInfo((p) => ({ ...p, code: formatPatientCode(e.target.value) }))}
+                dir="ltr"
+              />
+            </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">الوظيفة</Label>
+              <Input
+                className="text-xs border-0 flex-1 min-w-0"
+                style={{ textAlign: "right" }}
+                value={patientDetails.job}
+                onChange={(e) => setPatientDetails((p) => ({ ...p, job: e.target.value }))}
+              />
+            </div>
           </div>
-          <div className="grid grid-cols-[90px_1fr] items-center gap-1">
-            <Label className="text-sm text-right">تاريخ الكشف</Label>
-            <Input className="h-9" type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">الطبيب</Label>
+              <Select value={doctorName} onValueChange={setDoctorName}>
+                <SelectTrigger className="text-xs border-0 w-full sm:w-40 min-w-0" style={{ textAlign: "right" }}>
+                  <SelectValue placeholder={doctorsQuery.isLoading ? "Loading doctors..." : "اختر الطبيب"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableDoctors.map((doctor) => (
+                    <SelectItem key={doctor.id} value={doctor.name}>
+                      {doctor.code} - {doctor.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">تاريخ الكشف</Label>
+              <Input
+                className="text-xs border-0 flex-1 min-w-0"
+                style={{ textAlign: "right" }}
+                type="date"
+                value={visitDate}
+                onChange={(e) => setVisitDate(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="font-bold">نوع الشيت</Label>
+              <Select value={serviceType} onValueChange={(value) => setServiceType(normalizeServiceType(value))}>
+                <SelectTrigger className="text-xs border-0 w-full min-w-0" style={{ textAlign: "right" }}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="consultant">استشاري</SelectItem>
+                  <SelectItem value="specialist">اخصائي</SelectItem>
+                  <SelectItem value="lasik">ليزك</SelectItem>
+                  <SelectItem value="surgery">عمليات</SelectItem>
+                  <SelectItem value="external">خارجي</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-end gap-3 flex-wrap">
+              <label className="inline-flex items-center gap-1 text-sm whitespace-nowrap flex-row-reverse">
+                <Checkbox
+                  checked={serviceFlags.consultation}
+                  onCheckedChange={(checked) =>
+                    setServiceFlags((prev) => ({ ...prev, consultation: Boolean(checked) }))
+                  }
+                />
+                كشف
+                <Input
+                  value={serviceNotes.consultation}
+                  onChange={(e) =>
+                    setServiceNotes((prev) => ({ ...prev, consultation: e.target.value }))
+                  }
+                  className="h-8 w-32 mr-1"
+                  placeholder="تفاصيل كشف"
+                />
+              </label>
+              <label className="inline-flex items-center gap-1 text-sm whitespace-nowrap flex-row-reverse">
+                <Checkbox
+                  checked={serviceFlags.examination}
+                  onCheckedChange={(checked) =>
+                    setServiceFlags((prev) => ({ ...prev, examination: Boolean(checked) }))
+                  }
+                />
+                فحص
+                <Input
+                  value={serviceNotes.examination}
+                  onChange={(e) =>
+                    setServiceNotes((prev) => ({ ...prev, examination: e.target.value }))
+                  }
+                  className="h-8 w-32 mr-1"
+                  placeholder="تفاصيل فحص"
+                />
+              </label>
+              <label className="inline-flex items-center gap-1 text-sm whitespace-nowrap flex-row-reverse">
+                <Checkbox
+                  checked={serviceFlags.imaging}
+                  onCheckedChange={(checked) =>
+                    setServiceFlags((prev) => ({ ...prev, imaging: Boolean(checked) }))
+                  }
+                />
+                اشعه
+                <Input
+                  value={serviceNotes.imaging}
+                  onChange={(e) =>
+                    setServiceNotes((prev) => ({ ...prev, imaging: e.target.value }))
+                  }
+                  className="h-8 w-32 mr-1"
+                  placeholder="تفاصيل اشعه"
+                />
+              </label>
+            </div>
           </div>
         </div>
 
