@@ -137,6 +137,36 @@ function recoverIdFromRows(rows: Row[]): string {
     const scope = topBand.filter((r) => r.top >= anchorTop && r.top <= anchorTop + 240);
     const anchored = scanForId(scope);
     if (anchored) return anchored;
+
+    // In many Pentacam layouts, ID row is between "First Name" and "Date of Birth".
+    const scopedByLine = new Map<string, Row[]>();
+    for (const r of scope) {
+      const key = `${r.block}-${r.par}-${r.line}`;
+      if (!scopedByLine.has(key)) scopedByLine.set(key, []);
+      scopedByLine.get(key)!.push(r);
+    }
+    const orderedScopedLines = Array.from(scopedByLine.values())
+      .map((lineRowsRaw) => [...lineRowsRaw].sort((a, b) => a.left - b.left))
+      .sort((a, b) => (a[0]?.top ?? 0) - (b[0]?.top ?? 0));
+    const firstNameTop = orderedScopedLines.find((lineRows) =>
+      /\bfirst\s*name\b/i.test(lineRows.map((r) => r.text).join(" "))
+    )?.[0]?.top;
+    const birthTop = orderedScopedLines.find((lineRows) =>
+      /\b(date\s*of\s*birth|birth|dob)\b/i.test(lineRows.map((r) => r.text).join(" "))
+    )?.[0]?.top;
+    if (Number.isFinite(firstNameTop) && Number.isFinite(birthTop) && Number(birthTop) > Number(firstNameTop)) {
+      for (const lineRows of orderedScopedLines) {
+        const y = lineRows[0]?.top ?? 0;
+        if (y <= Number(firstNameTop) || y >= Number(birthTop)) continue;
+        const lineText = lineRows.map((r) => r.text).join(" ");
+        const tokens = lineText.match(/\b\d{6}\b/g) ?? [];
+        for (const token of tokens) {
+          const n = normalizeIdCode(token);
+          if (n) return n;
+        }
+      }
+    }
+
     const byLine = new Map<string, Row[]>();
     for (const r of scope) {
       const key = `${r.block}-${r.par}-${r.line}`;
