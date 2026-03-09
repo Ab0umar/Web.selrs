@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 
 const execFileAsync = promisify(execFile);
 const DIR = process.argv[2] || "E:/Web.selrs.cc/Pentacam";
+const LIMIT = Math.max(0, Number(process.argv[3] || "0"));
 const TESS = process.env.BLACKICE_OCR_TESSERACT_PATH || "C:/Program Files/Tesseract-OCR/tesseract.exe";
 const EXT = /\.(jpg|jpeg|png|webp|bmp|tif|tiff)$/i;
 
@@ -75,62 +76,88 @@ async function ocrTsv(filePath: string, psm: number): Promise<Row[]> {
 }
 
 function recoverIdFromRows(rows: Row[]): string {
-  // Header area where Pentacam shows Last/First/ID/Eye
-  const header = rows.filter((r) => r.left <= 560 && r.top <= 300 && r.conf >= 0);
-  if (header.length === 0) return "";
+  const topBand = rows.filter((r) => r.top <= 420 && r.conf >= 0);
+  if (topBand.length === 0) return "";
 
-  const byLine = new Map<string, Row[]>();
-  for (const r of header) {
-    const key = `${r.block}-${r.par}-${r.line}`;
-    if (!byLine.has(key)) byLine.set(key, []);
-    byLine.get(key)!.push(r);
-  }
-
-  // Prefer digits on a line containing ID label
-  for (const [, lineRowsRaw] of byLine) {
-    const lineRows = [...lineRowsRaw].sort((a, b) => a.left - b.left);
-    const words = lineRows.map((r) => r.text);
-    const joined = words.join(" ");
-    if (!/\b(id|ld|i\s*d)\b/i.test(joined)) continue;
-
-    // 1) direct regex from full line
-    const rx = joined.match(/(?:\bID\b|\bLD\b|\bI\s*D\b)\s*[:\-]?\s*(\d{3,12})/i);
-    if (rx?.[1]) {
-      const n = normalizeIdCode(rx[1]);
-      if (n) return n;
+  const scanForId = (scope: Row[]): string => {
+    const byLine = new Map<string, Row[]>();
+    for (const r of scope) {
+      const key = `${r.block}-${r.par}-${r.line}`;
+      if (!byLine.has(key)) byLine.set(key, []);
+      byLine.get(key)!.push(r);
     }
 
-    // 2) nearest numeric token to the right side of ID token
-    const idIdx = lineRows.findIndex((r) => /^(id|ld|i\s*d)$/i.test(r.text));
-    if (idIdx >= 0) {
-      for (let i = idIdx + 1; i < lineRows.length; i++) {
-        const d = lineRows[i].text.match(/\d{3,12}/)?.[0] || "";
-        const n = normalizeIdCode(d);
+    for (const [, lineRowsRaw] of byLine) {
+      const lineRows = [...lineRowsRaw].sort((a, b) => a.left - b.left);
+      const words = lineRows.map((r) => r.text);
+      const joined = words.join(" ");
+      if (!/\b(id|ld|i\s*d)\b/i.test(joined)) continue;
+
+      const rx = joined.match(/(?:\bID\b|\bLD\b|\bI\s*D\b)\s*[:\-]?\s*(\d{6})\b/i);
+      if (rx?.[1]) {
+        const n = normalizeIdCode(rx[1]);
+        if (n) return n;
+      }
+
+      const idIdx = lineRows.findIndex((r) => /^(id|ld|i\s*d)$/i.test(r.text));
+      if (idIdx >= 0) {
+        for (let i = idIdx + 1; i < lineRows.length; i++) {
+          const d = lineRows[i].text.match(/\b\d{6}\b/)?.[0] || "";
+          const n = normalizeIdCode(d);
+          if (n) return n;
+        }
+      }
+    }
+    return "";
+  };
+
+  const lineMap = new Map<string, Row[]>();
+  for (const r of topBand) {
+    const key = `${r.block}-${r.par}-${r.line}`;
+    if (!lineMap.has(key)) lineMap.set(key, []);
+    lineMap.get(key)!.push(r);
+  }
+
+  let anchorTop = Number.POSITIVE_INFINITY;
+  for (const [, lineRowsRaw] of lineMap) {
+    const lineRows = [...lineRowsRaw].sort((a, b) => a.left - b.left);
+    const text = lineRows.map((r) => r.text).join(" ");
+    if (
+      (/\boculus\b/i.test(text) && /\bpentacam\b/i.test(text)) ||
+      /\benhanced\b/i.test(text) ||
+      /\bectasia\b/i.test(text) ||
+      /\btopometric\b/i.test(text) ||
+      /\bkc[-\s]*staging\b/i.test(text) ||
+      /\b4\s*maps\b/i.test(text)
+    ) {
+      anchorTop = Math.min(anchorTop, lineRows[0]?.top ?? Number.POSITIVE_INFINITY);
+    }
+  }
+  if (Number.isFinite(anchorTop)) {
+    const scope = topBand.filter((r) => r.top >= anchorTop && r.top <= anchorTop + 240);
+    const anchored = scanForId(scope);
+    if (anchored) return anchored;
+    const byLine = new Map<string, Row[]>();
+    for (const r of scope) {
+      const key = `${r.block}-${r.par}-${r.line}`;
+      if (!byLine.has(key)) byLine.set(key, []);
+      byLine.get(key)!.push(r);
+    }
+    const orderedLines = Array.from(byLine.values())
+      .map((lineRowsRaw) => [...lineRowsRaw].sort((a, b) => a.left - b.left))
+      .sort((a, b) => (a[0]?.top ?? 0) - (b[0]?.top ?? 0));
+    for (const lineRows of orderedLines) {
+      const lineText = lineRows.map((r) => r.text).join(" ");
+      if (/\b(date|birth|exam|time|eye|right|left)\b/i.test(lineText)) continue;
+      const tokens = lineText.match(/\b\d{6}\b/g) ?? [];
+      for (const token of tokens) {
+        const n = normalizeIdCode(token);
         if (n) return n;
       }
     }
-
-    // 3) fallback any numeric in line
-    for (const w of words) {
-      const d = w.match(/\d{3,12}/)?.[0] || "";
-      const n = normalizeIdCode(d);
-      if (n) return n;
-    }
   }
 
-  // Fallback: choose 6-digit number near left header (exclude obvious date/time)
-  const numeric = header
-    .map((r) => ({ ...r, d: r.text.match(/\d{3,12}/)?.[0] || "" }))
-    .filter((r) => r.d)
-    .filter((r) => !/^\d{8}$/.test(r.d)) // date
-    .filter((r) => !/^\d{6}$/.test(r.d) || (r.left < 260 && r.top < 170)); // allow ID-like 6-digit only in top-left
-
-  for (const r of numeric.sort((a, b) => a.top - b.top || a.left - b.left)) {
-    const n = normalizeIdCode(r.d);
-    if (n) return n;
-  }
-
-  return "";
+  return scanForId(topBand);
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -139,10 +166,11 @@ async function exists(p: string): Promise<boolean> {
 
 async function run() {
   const entries = await fs.readdir(DIR, { withFileTypes: true });
-  const files = entries
+  const allFiles = entries
     .filter((e) => e.isFile() && EXT.test(e.name) && e.name.startsWith("NOID_"))
     .map((e) => e.name)
     .sort((a, b) => a.localeCompare(b));
+  const files = LIMIT > 0 ? allFiles.slice(0, LIMIT) : allFiles;
 
   let recovered = 0;
   let unchanged = 0;
@@ -186,7 +214,7 @@ async function run() {
     }
   }
 
-  console.log(`done total=${files.length} recovered=${recovered} unchanged=${unchanged} failed=${failed}`);
+  console.log(`done total=${files.length} recovered=${recovered} unchanged=${unchanged} failed=${failed} limit=${LIMIT || "all"}`);
 }
 
 run().catch((e) => {

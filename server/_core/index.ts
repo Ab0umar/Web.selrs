@@ -52,6 +52,16 @@ type BlackIceOcrLinkOptions = {
   psm: number;
 };
 
+type OcrTsvRow = {
+  left: number;
+  top: number;
+  conf: number;
+  text: string;
+  block: number;
+  paragraph: number;
+  line: number;
+};
+
 const IMPORTABLE_IMAGE_EXT = /\.(jpg|jpeg|png|webp|bmp|tif|tiff)$/i;
 let blackIceDbCycleBusy = false;
 
@@ -432,6 +442,157 @@ async function runOcrFromBuffer(
   }
 }
 
+function parseOcrTsv(input: string): OcrTsvRow[] {
+  const rows: OcrTsvRow[] = [];
+  const lines = String(input ?? "").split(/\r?\n/);
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    const cols = line.split("\t");
+    if (cols.length < 12) continue;
+    const text = String(cols[11] ?? "").trim();
+    if (!text) continue;
+    rows.push({
+      left: Number(cols[6] ?? 0),
+      top: Number(cols[7] ?? 0),
+      conf: Number(cols[10] ?? -1),
+      text,
+      block: Number(cols[2] ?? 0),
+      paragraph: Number(cols[3] ?? 0),
+      line: Number(cols[4] ?? 0),
+    });
+  }
+  return rows;
+}
+
+function extractStrictHeaderIdFromTsv(rows: OcrTsvRow[]): string {
+  const topBand = rows.filter((r) => r.top <= 420 && r.conf >= 0);
+  if (topBand.length === 0) return "";
+
+  const scanForId = (scope: OcrTsvRow[]): string => {
+    const lineMap = new Map<string, OcrTsvRow[]>();
+    for (const row of scope) {
+      const key = `${row.block}-${row.paragraph}-${row.line}`;
+      if (!lineMap.has(key)) lineMap.set(key, []);
+      lineMap.get(key)!.push(row);
+    }
+
+    for (const [, lineRowsRaw] of lineMap) {
+      const lineRows = [...lineRowsRaw].sort((a, b) => a.left - b.left);
+      const lineText = lineRows.map((r) => r.text).join(" ");
+      if (!/\b(id|ld|i\s*d)\b/i.test(lineText)) continue;
+
+      const direct = lineText.match(/(?:\bID\b|\bLD\b|\bI\s*D\b)\s*[:\-]?\s*(\d{6})\b/i)?.[1] ?? "";
+      const normalizedDirect = normalizeIdCode(direct);
+      if (normalizedDirect) return normalizedDirect;
+
+      const idTokenIndex = lineRows.findIndex((r) => /^(id|ld|i\s*d)$/i.test(r.text));
+      if (idTokenIndex >= 0) {
+        for (let i = idTokenIndex + 1; i < lineRows.length; i++) {
+          const candidate = lineRows[i].text.match(/\b\d{6}\b/)?.[0] ?? "";
+          const normalized = normalizeIdCode(candidate);
+          if (normalized) return normalized;
+        }
+      }
+    }
+    return "";
+  };
+
+  // First priority: rows under anchor titles (OCULUS/PENTACAM and middle layouts).
+  const anchorLines = new Map<string, OcrTsvRow[]>();
+  for (const row of topBand) {
+    const key = `${row.block}-${row.paragraph}-${row.line}`;
+    if (!anchorLines.has(key)) anchorLines.set(key, []);
+    anchorLines.get(key)!.push(row);
+  }
+  let anchorTop = Number.POSITIVE_INFINITY;
+  for (const [, lineRowsRaw] of anchorLines) {
+    const lineRows = [...lineRowsRaw].sort((a, b) => a.left - b.left);
+    const text = lineRows.map((r) => r.text).join(" ");
+    if (
+      (/\boculus\b/i.test(text) && /\bpentacam\b/i.test(text)) ||
+      /\benhanced\b/i.test(text) ||
+      /\bectasia\b/i.test(text) ||
+      /\btopometric\b/i.test(text) ||
+      /\bkc[-\s]*staging\b/i.test(text) ||
+      /\b4\s*maps\b/i.test(text)
+    ) {
+      anchorTop = Math.min(anchorTop, lineRows[0]?.top ?? Number.POSITIVE_INFINITY);
+    }
+  }
+  if (Number.isFinite(anchorTop)) {
+    const oculusScope = topBand.filter((r) => r.top >= anchorTop && r.top <= anchorTop + 240);
+    const anchored = scanForId(oculusScope);
+    if (anchored) return anchored;
+    // Fallback 1: in many layouts, ID row is between "First Name" and "Date of Birth".
+    const byLine = new Map<string, OcrTsvRow[]>();
+    for (const r of oculusScope) {
+      const key = `${r.block}-${r.paragraph}-${r.line}`;
+      if (!byLine.has(key)) byLine.set(key, []);
+      byLine.get(key)!.push(r);
+    }
+    const orderedLines = Array.from(byLine.values())
+      .map((lineRowsRaw) => [...lineRowsRaw].sort((a, b) => a.left - b.left))
+      .sort((a, b) => (a[0]?.top ?? 0) - (b[0]?.top ?? 0));
+    const firstNameTop = orderedLines.find((lineRows) =>
+      /\bfirst\s*name\b/i.test(lineRows.map((r) => r.text).join(" "))
+    )?.[0]?.top;
+    const birthTop = orderedLines.find((lineRows) =>
+      /\b(date\s*of\s*birth|birth|dob)\b/i.test(lineRows.map((r) => r.text).join(" "))
+    )?.[0]?.top;
+    if (Number.isFinite(firstNameTop) && Number.isFinite(birthTop) && Number(birthTop) > Number(firstNameTop)) {
+      for (const lineRows of orderedLines) {
+        const y = lineRows[0]?.top ?? 0;
+        if (y <= Number(firstNameTop) || y >= Number(birthTop)) continue;
+        const lineText = lineRows.map((r) => r.text).join(" ");
+        const tokens = lineText.match(/\b\d{6}\b/g) ?? [];
+        for (const token of tokens) {
+          const normalized = normalizeIdCode(token);
+          if (normalized) return normalized;
+        }
+      }
+    }
+
+    // Fallback 2: choose first plausible ID-length token from early rows under the title.
+    for (const lineRows of orderedLines) {
+      const lineText = lineRows.map((r) => r.text).join(" ");
+      if (/\b(date|birth|exam|time|eye|right|left)\b/i.test(lineText)) continue;
+      const tokens = lineText.match(/\b\d{6}\b/g) ?? [];
+      for (const token of tokens) {
+        const normalized = normalizeIdCode(token);
+        if (normalized) return normalized;
+      }
+    }
+  }
+
+  const fallback = scanForId(topBand);
+  if (fallback) return fallback;
+
+  return "";
+}
+
+async function runOcrTsvFromBuffer(
+  image: Buffer,
+  fileName: string,
+  cfg: BlackIceOcrLinkOptions,
+  psmOverride?: number
+): Promise<OcrTsvRow[]> {
+  const tmpBase = await mkdtemp(path.join(os.tmpdir(), "blackice-ocr-tsv-"));
+  const inputPath = path.join(tmpBase, fileName || "input.jpg");
+  const outputBase = path.join(tmpBase, "ocr");
+  const outputTsv = `${outputBase}.tsv`;
+  try {
+    await writeFile(inputPath, image);
+    const psm = Math.max(3, Math.min(13, Number(psmOverride ?? cfg.psm)));
+    const args = [inputPath, outputBase, "-l", cfg.lang, "--psm", String(psm), "tsv"];
+    await execFile(cfg.tesseractPath, args, { windowsHide: true, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 });
+    const text = await readFile(outputTsv, "utf8");
+    return parseOcrTsv(text);
+  } finally {
+    await rm(tmpBase, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function renameFileWithExtractedId(
   filePath: string,
   ocrText: string
@@ -581,37 +742,26 @@ async function startServer() {
             });
 
             let importCode = "";
-            let importName = "";
-            let importEye = "";
             const ocrCfg = getBlackIceOcrLinkOptions();
             if (ocrCfg.enabled) {
               try {
-                const psmCandidates = Array.from(new Set([ocrCfg.psm, 4]));
+                const psmCandidates = Array.from(new Set([4, ocrCfg.psm]));
                 for (const psm of psmCandidates) {
-                  const importOcrText = await runOcrFromBuffer(fileData, fileName, ocrCfg, psm);
-                  if (!importCode) {
-                    const renameCode = pickRenameCodeFromOcrText(importOcrText);
-                    if (renameCode) importCode = renameCode;
+                  const tsvRows = await runOcrTsvFromBuffer(fileData, fileName, ocrCfg, psm);
+                  const renameCode = extractStrictHeaderIdFromTsv(tsvRows);
+                  if (renameCode) {
+                    importCode = renameCode;
+                    break;
                   }
-                  if (!importName) {
-                    const ocrName = extractPatientNameFromOcrText(importOcrText);
-                    if (ocrName) importName = ocrName;
-                  } else if (isWeakParsedPatientName(importName)) {
-                    const ocrName = extractPatientNameFromOcrText(importOcrText);
-                    if (ocrName && !isWeakParsedPatientName(ocrName)) importName = ocrName;
-                  }
-                  if (!importEye) {
-                    const ocrEye = extractEyeFromOcrText(importOcrText);
-                    if (ocrEye) importEye = ocrEye;
-                  }
-                  if (importCode && importName && importEye) break;
                 }
               } catch {
                 // Keep import fast/resilient; OCR-based naming is best-effort.
               }
             }
 
-            const renamedPath = await renameToPatientIdentity(fullPath, importCode, importName, importEye);
+            // Strict rule: only explicit header ID can be used as ID prefix.
+            // If ID is not extracted, keep filename-based name/eye rename without any ID prefix.
+            const renamedPath = await renameToPatientIdentity(fullPath, importCode, undefined, undefined);
             const movedPath =
               path.resolve(path.dirname(renamedPath)) === path.resolve(cfg.processedDir)
                 ? renamedPath
@@ -633,9 +783,11 @@ async function startServer() {
               try {
                 const ocrCfg = getBlackIceOcrLinkOptions();
                 if (ocrCfg.enabled && fileData && fileData.length > 0) {
-                  const ocrText = await runOcrFromBuffer(fileData, fileName, ocrCfg);
-                  const renamed = await renameFileWithExtractedId(fullPath, ocrText);
-                  if (renamed) {
+                  const tsvRows = await runOcrTsvFromBuffer(fileData, fileName, ocrCfg, 4);
+                  const strictCode = extractStrictHeaderIdFromTsv(tsvRows);
+                  if (strictCode) {
+                    const renamedPath = await renameToPatientIdentity(fullPath, strictCode, undefined, undefined);
+                    const renamed = path.basename(renamedPath);
                     console.log(`[blackice-import] Renamed by OCR on lock timeout: ${fileName} -> ${renamed}`);
                   }
                 }
