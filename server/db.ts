@@ -678,16 +678,35 @@ export async function searchPatients(
   if (!db) throw new Error("Database not available");
 
   const normalized = String(searchTerm ?? "").trim();
+  const tokens = normalized.split(/\s+/).filter(Boolean);
   const legacy = encodeForLegacySearch(normalized);
   const term = `%${normalized}%`;
   const legacyTerm = `%${legacy}%`;
-  const textMatch = or(
+  const buildTokenClause = (token: string) => {
+    const t = `%${token}%`;
+    const lt = `%${encodeForLegacySearch(token)}%`;
+    return or(
+      like(patients.fullName, t),
+      like(patients.fullName, lt),
+      like(patients.patientCode, t),
+      like(patients.phone, t),
+      like(patients.alternatePhone, t)
+    );
+  };
+  const phraseClause = or(
     like(patients.fullName, term),
     like(patients.fullName, legacyTerm),
     like(patients.patientCode, term),
     like(patients.phone, term),
     like(patients.alternatePhone, term)
   );
+  const tokenClauses = tokens.map(buildTokenClause);
+  const textMatch =
+    tokenClauses.length > 1
+      ? and(...tokenClauses)
+      : tokenClauses.length === 1
+      ? tokenClauses[0]
+      : phraseClause;
 
   let whereClause = textMatch as any;
   if (sheetType) {
@@ -808,34 +827,38 @@ function buildPatientFilterClauses(filters?: {
   }
   const normalizedSearch = String(filters?.searchTerm ?? "").trim();
   if (normalizedSearch) {
-    const legacy = encodeForLegacySearch(normalizedSearch);
-    const term = `%${normalizedSearch}%`;
-    const legacyTerm = `%${legacy}%`;
-    whereClauses.push(sql`
-      (
-        ${patients.fullName} LIKE ${term}
-        OR ${patients.fullName} LIKE ${legacyTerm}
-        OR ${patients.patientCode} LIKE ${term}
-        OR ${patients.phone} LIKE ${term}
-        OR ${patients.alternatePhone} LIKE ${term}
-        OR EXISTS (
-          SELECT 1
-          FROM patientPageStates pps
-          WHERE pps.patientId = ${patients.id}
-            AND pps.page = 'examination'
-            AND (
-              TRIM(COALESCE(
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
-              )) LIKE ${term}
-              OR TRIM(COALESCE(
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
-              )) LIKE ${legacyTerm}
-            )
+    const searchTokens = normalizedSearch.split(/\s+/).filter(Boolean);
+    const effectiveSearchTokens = searchTokens.length > 0 ? searchTokens : [normalizedSearch];
+    for (const token of effectiveSearchTokens) {
+      const legacyToken = encodeForLegacySearch(token);
+      const tokenTerm = `%${token}%`;
+      const legacyTokenTerm = `%${legacyToken}%`;
+      whereClauses.push(sql`
+        (
+          ${patients.fullName} LIKE ${tokenTerm}
+          OR ${patients.fullName} LIKE ${legacyTokenTerm}
+          OR ${patients.patientCode} LIKE ${tokenTerm}
+          OR ${patients.phone} LIKE ${tokenTerm}
+          OR ${patients.alternatePhone} LIKE ${tokenTerm}
+          OR EXISTS (
+            SELECT 1
+            FROM patientPageStates pps
+            WHERE pps.patientId = ${patients.id}
+              AND pps.page = 'examination'
+              AND (
+                TRIM(COALESCE(
+                  NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
+                  NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
+                )) LIKE ${tokenTerm}
+                OR TRIM(COALESCE(
+                  NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
+                  NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
+                )) LIKE ${legacyTokenTerm}
+              )
+          )
         )
-      )
-    `);
+      `);
+    }
   }
   const normalizedDateFrom = String(filters?.dateFrom ?? "").trim();
   if (normalizedDateFrom) {
@@ -855,37 +878,33 @@ function buildPatientFilterClauses(filters?: {
   }
   const normalizedDoctor = String(filters?.doctorName ?? "").trim();
   if (normalizedDoctor) {
-    const legacyDoctor = encodeForLegacySearch(normalizedDoctor);
-    const doctorTerm = `%${normalizedDoctor}%`;
-    const legacyDoctorTerm = `%${legacyDoctor}%`;
-    whereClauses.push(sql`
-      (
-        EXISTS (
-          SELECT 1
-          FROM patientPageStates pps
-          WHERE pps.patientId = ${patients.id}
-            AND pps.page = 'examination'
-            AND (
-              TRIM(COALESCE(
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
-              )) LIKE ${doctorTerm}
-              OR TRIM(COALESCE(
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
-              )) LIKE ${legacyDoctorTerm}
-              OR TRIM(COALESCE(
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
-              )) = ${normalizedDoctor}
-              OR TRIM(COALESCE(
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
-                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
-              )) = ${legacyDoctor}
-            )
+    const doctorTokens = normalizedDoctor.split(/\s+/).filter(Boolean);
+    const effectiveDoctorTokens = doctorTokens.length > 0 ? doctorTokens : [normalizedDoctor];
+    for (const token of effectiveDoctorTokens) {
+      const legacyDoctorToken = encodeForLegacySearch(token);
+      const doctorTokenTerm = `%${token}%`;
+      const legacyDoctorTokenTerm = `%${legacyDoctorToken}%`;
+      whereClauses.push(sql`
+        (
+          EXISTS (
+            SELECT 1
+            FROM patientPageStates pps
+            WHERE pps.patientId = ${patients.id}
+              AND pps.page = 'examination'
+              AND (
+                TRIM(COALESCE(
+                  NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
+                  NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
+                )) LIKE ${doctorTokenTerm}
+                OR TRIM(COALESCE(
+                  NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.doctorName')), ''),
+                  NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pps.data, '$.signatures.doctor')), '')
+                )) LIKE ${legacyDoctorTokenTerm}
+              )
+          )
         )
-      )
-    `);
+      `);
+    }
   }
   return whereClauses;
 }

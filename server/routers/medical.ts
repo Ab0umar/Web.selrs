@@ -434,9 +434,12 @@ function resolvePatientForPentacamFileName(
   }
 
   const nameFragment = extractPentacamNameFragment(fileName);
-  if (!nameFragment) return null;
-  const fileTokens = new Set(tokenizePentacamMatchText(nameFragment));
-  if (fileTokens.size < 2) return null;
+  const stem = path.parse(String(fileName ?? "")).name;
+  const coarseFragment = normalizePentacamMatchText(stem);
+  const workingFragment = nameFragment || coarseFragment;
+  if (!workingFragment) return null;
+  const fileTokens = new Set(tokenizePentacamMatchText(workingFragment));
+  if (fileTokens.size < 1) return null;
   const capturedAtIso = inferPentacamCapturedAtFromName(fileName);
   const capturedAtMs = capturedAtIso ? Date.parse(capturedAtIso) : NaN;
   const patientReferenceMs = (patient: any) => {
@@ -464,14 +467,14 @@ function resolvePatientForPentacamFileName(
   for (const candidate of matcher.candidates) {
     for (const nameKey of candidate.normalizedNameKeys) {
       if (!nameKey || nameKey.length < 4) continue;
-      if (!nameFragment.includes(nameKey)) continue;
+      if (!workingFragment.includes(nameKey)) continue;
       const keyTokens = tokenizePentacamMatchText(nameKey);
-      if (keyTokens.length < 2) continue;
+      if (keyTokens.length < 1) continue;
       let tokenOverlap = 0;
       for (const token of keyTokens) {
         if (fileTokens.has(token)) tokenOverlap += 1;
       }
-      if (tokenOverlap < 2) continue;
+      if (tokenOverlap < 1) continue;
       const score = nameKey.length;
       const dayDiff = patientDayDiff(candidate.patient);
       if (
@@ -497,7 +500,7 @@ function resolvePatientForPentacamFileName(
     for (const token of fileTokens) {
       if (candidate.tokenSet.has(token)) overlap += 1;
     }
-    if (overlap < 2) continue;
+    if (overlap < 1) continue;
     const dayDiff = patientDayDiff(candidate.patient);
     if (
       !bestToken ||
@@ -513,7 +516,7 @@ function resolvePatientForPentacamFileName(
   if (bestToken) return { patient: bestToken.patient, matchedBy: bestToken.matchedBy };
 
   // Third pass: Arabic-English phonetic overlap.
-  const fileTokenSignatures = buildPentacamTokenSignatureSet(nameFragment);
+  const fileTokenSignatures = buildPentacamTokenSignatureSet(workingFragment);
   if (fileTokenSignatures.size === 0) return null;
 
   let bestPhonetic: { patient: any; overlap: number; matchedBy: string; dayDiff: number } | null = null;
@@ -524,7 +527,7 @@ function resolvePatientForPentacamFileName(
         overlap += 1;
       }
     }
-    if (overlap < 2) continue;
+    if (overlap < 1) continue;
     const dayDiff = patientDayDiff(candidate.patient);
     if (
       !bestPhonetic ||
@@ -538,8 +541,27 @@ function resolvePatientForPentacamFileName(
     }
   }
 
-  if (!bestPhonetic) return null;
-  return { patient: bestPhonetic.patient, matchedBy: bestPhonetic.matchedBy };
+  if (bestPhonetic) return { patient: bestPhonetic.patient, matchedBy: bestPhonetic.matchedBy };
+
+  // Aggressive fallback: pick highest token overlap even if weak.
+  let fallback: { patient: any; overlap: number; dayDiff: number } | null = null;
+  for (const candidate of matcher.candidates) {
+    let overlap = 0;
+    for (const token of fileTokens) {
+      if (candidate.tokenSet.has(token)) overlap += 1;
+    }
+    if (overlap <= 0) continue;
+    const dayDiff = patientDayDiff(candidate.patient);
+    if (
+      !fallback ||
+      overlap > fallback.overlap ||
+      (overlap === fallback.overlap && dayDiff < fallback.dayDiff)
+    ) {
+      fallback = { patient: candidate.patient, overlap, dayDiff };
+    }
+  }
+  if (fallback) return { patient: fallback.patient, matchedBy: `fallback-tokens:${fallback.overlap}` };
+  return null;
 }
 
 function suggestPatientsForPentacamFileName(
@@ -2187,7 +2209,26 @@ export const medicalRouter = router({
           continue;
         }
 
-        const matched = resolvePatientForPentacamFileName(fileName, matcher);
+        let matched = resolvePatientForPentacamFileName(fileName, matcher);
+        if (!matched?.patient) {
+          // Strict unmatched-only fallback: accept only a clearly dominant, high-confidence suggestion.
+          const suggested = suggestPatientsForPentacamFileName(fileName, matcher, 2);
+          const top = suggested[0];
+          const second = suggested[1];
+          const topScore = Number(top?.score ?? 0);
+          const secondScore = Number(second?.score ?? 0);
+          const topMatchedBy = String(top?.matchedBy ?? "");
+          const dominantTop = !second || secondScore < topScore * 0.85;
+          const nameDriven = topMatchedBy.startsWith("name:");
+          const strongScore = topScore >= 680;
+          const allowTokenFallback = topScore >= 760;
+          if (top && dominantTop && strongScore && (nameDriven || allowTokenFallback)) {
+            matched = {
+              patient: top.patient,
+              matchedBy: `suggest:${topMatchedBy}:${topScore}`,
+            };
+          }
+        }
         if (!matched?.patient) {
           unmatched += 1;
           if (unresolvedFiles.length < 5000) unresolvedFiles.push(fileName);
