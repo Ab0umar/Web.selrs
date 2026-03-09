@@ -2108,22 +2108,33 @@ export async function deletePatientFromMssqlByCode(patientCodeRaw: string): Prom
   try {
     await pool.connect();
 
-    try {
-      await pool
-        .request()
-        .input("PAT_CD", patientCode)
-        .query(`DELETE FROM op2026.dbo.PAPAT_SRV WHERE PAT_CD = @PAT_CD`);
-    } catch {
-      // PAPAT_SRV might not exist in some deployments; still continue deleting header row.
-    }
+    // Delete children first, then header row.
+    const tryDeleteByCode = async (tableName: string): Promise<number> => {
+      try {
+        const result = await pool
+          .request()
+          .input("PAT_CD", patientCode)
+          .query(`DELETE FROM ${tableName} WHERE PAT_CD = @PAT_CD`);
+        return Number(result?.rowsAffected?.[0] ?? 0);
+      } catch {
+        // Some deployments may not have all tables.
+        return 0;
+      }
+    };
 
-    const result = await pool
-      .request()
-      .input("PAT_CD", patientCode)
-      .query(`DELETE FROM ${targetTable} WHERE PAT_CD = @PAT_CD`);
+    const deletedSrv = await tryDeleteByCode("op2026.dbo.PAPAT_SRV");
+    const deletedIo = await tryDeleteByCode("op2026.dbo.PAPAT_IO");
+    const deletedMf = await tryDeleteByCode("op2026.dbo.PAPATMF");
+    const deletedHeader = await tryDeleteByCode(targetTable);
 
-    const affected = Number(result?.rowsAffected?.[0] ?? 0);
-    return { deleted: affected > 0, note: affected > 0 ? undefined : "No MSSQL row found for PAT_CD" };
+    const totalDeleted = deletedSrv + deletedIo + deletedMf + deletedHeader;
+    return {
+      deleted: totalDeleted > 0,
+      note:
+        totalDeleted > 0
+          ? `Deleted rows - SRV:${deletedSrv}, IO:${deletedIo}, MF:${deletedMf}, HEADER:${deletedHeader}`
+          : "No MSSQL row found for PAT_CD in SRV/IO/MF/header",
+    };
   } finally {
     await pool.close();
   }

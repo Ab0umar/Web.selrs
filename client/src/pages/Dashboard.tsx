@@ -558,6 +558,8 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
   });
   const [doctorName, setDoctorName] = useState("");
   const [serviceType, setServiceType] = useState<"consultant" | "specialist" | "lasik" | "surgery" | "external">("consultant");
+  const [serviceCode, setServiceCode] = useState("");
+  const [serviceQty, setServiceQty] = useState("2");
   const [serviceFlags, setServiceFlags] = useState({
     consultation: false,
     examination: false,
@@ -581,16 +583,64 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
   const createPatientMutation = trpc.medical.createPatient.useMutation();
   const updatePatientMutation = trpc.medical.updatePatient.useMutation();
   const savePatientStateMutation = trpc.medical.savePatientPageState.useMutation();
+  const serviceDirectoryQuery = trpc.medical.getServiceDirectory.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
   const doctorsQuery = trpc.medical.getDoctorDirectory.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
   const availableDoctors = useMemo(
     () =>
-      ((doctorsQuery.data ?? []) as Array<{ id: string; name: string; code: string; isActive?: boolean }>)
+      ((doctorsQuery.data ?? []) as Array<{ id: string; name: string; code: string; username?: string; doctorType?: string; isActive?: boolean }>)
         .filter((doctor) => doctor.isActive !== false)
         .sort((a, b) => String(a.code ?? "").localeCompare(String(b.code ?? ""), "en", { numeric: true })),
     [doctorsQuery.data]
   );
+  const selectedDoctorEntry = useMemo(() => {
+    const normalized = String(doctorName ?? "").trim().toLowerCase();
+    if (!normalized) return null;
+    return (
+      availableDoctors.find((doctor) => {
+        const name = String(doctor.name ?? "").trim().toLowerCase();
+        const code = String(doctor.code ?? "").trim().toLowerCase();
+        const username = String(doctor.username ?? "").trim().toLowerCase();
+        return normalized === name || normalized === code || (username && normalized === username);
+      }) ?? null
+    );
+  }, [availableDoctors, doctorName]);
+  const serviceOptions = useMemo(() => {
+    const list = Array.isArray(serviceDirectoryQuery.data) ? (serviceDirectoryQuery.data as any[]) : [];
+    const normalizedSheet = String(serviceType || "").trim().toLowerCase();
+    const doctorType = String((selectedDoctorEntry as any)?.doctorType ?? "").trim().toLowerCase();
+    const targetType = normalizedSheet || doctorType;
+
+    const normalized = list
+      .filter((item) => item && item.isActive !== false)
+      .map((item) => ({
+        code: String(item.code ?? "").trim(),
+        name: String(item.name ?? "").trim(),
+        serviceType: String(item.serviceType ?? "").trim().toLowerCase(),
+      }))
+      .filter((item) => item.code && item.name);
+
+    if (!targetType) return normalized;
+    return normalized.filter((item) => item.serviceType === targetType);
+  }, [serviceDirectoryQuery.data, serviceType, selectedDoctorEntry]);
+  const selectedServiceOption = useMemo(
+    () => serviceOptions.find((item) => item.code === serviceCode) ?? null,
+    [serviceOptions, serviceCode]
+  );
+  const isPentacamService = useMemo(() => {
+    const code = String(selectedServiceOption?.code ?? serviceCode ?? "").trim().toLowerCase();
+    const name = String(selectedServiceOption?.name ?? "").trim().toLowerCase();
+    if (!code && !name) return false;
+    return (
+      code === "1501" ||
+      code.includes("pentacam") ||
+      name.includes("pentacam") ||
+      name.includes("بنتاكام")
+    );
+  }, [selectedServiceOption, serviceCode]);
 
   useEffect(() => {
     if (!patientQuery.data) return;
@@ -618,6 +668,12 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
     if (doctorFromState) setDoctorName(doctorFromState);
     const visitFromState = String(stateData.visitDate ?? "").trim();
     if (visitFromState) setVisitDate(visitFromState);
+    if (stateData.serviceCode !== undefined) {
+      setServiceCode(String(stateData.serviceCode ?? ""));
+    }
+    if (stateData.serviceQty !== undefined) {
+      setServiceQty(String(stateData.serviceQty ?? "2") || "2");
+    }
     const flags = stateData.serviceFlags;
     if (flags && typeof flags === "object") {
       setServiceFlags({
@@ -701,6 +757,9 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
         data: {
           doctorName,
           visitDate,
+          serviceType,
+          serviceCode,
+          serviceQty,
           serviceFlags,
           serviceNotes,
           signatures: { doctor: doctorName },
@@ -896,6 +955,44 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
                 />
               </label>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+            <div className="flex items-center gap-2 min-w-0">
+              <Label htmlFor="srv-code" className="font-bold">الخدمة</Label>
+              <Select
+                value={serviceCode || "__none"}
+                onValueChange={(value) => setServiceCode(value === "__none" ? "" : value)}
+              >
+                <SelectTrigger id="srv-code" className="text-xs border-0 w-full sm:w-56 min-w-0">
+                  <SelectValue placeholder="اختر الخدمة" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">—</SelectItem>
+                  {serviceOptions.map((opt) => (
+                    <SelectItem key={opt.code} value={opt.code}>
+                      {opt.code} - {opt.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {isPentacamService ? (
+              <div className="flex items-center gap-2 min-w-0">
+                <Label htmlFor="srv-qty" className="font-bold">الكمية</Label>
+                <Select value={serviceQty || "2"} onValueChange={(value) => setServiceQty(value)}>
+                  <SelectTrigger id="srv-qty" className="text-xs border-0 w-full sm:w-32 min-w-0">
+                    <SelectValue placeholder="الكمية" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1</SelectItem>
+                    <SelectItem value="2">2</SelectItem>
+                    <SelectItem value="3">3</SelectItem>
+                    <SelectItem value="4">4</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
           </div>
         </div>
 
