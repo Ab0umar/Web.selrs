@@ -1400,6 +1400,50 @@ export async function getRecentPentacamResultNotes(limit = 50000) {
   return rows.map((row) => String(row.notes ?? ""));
 }
 
+export async function getRecentPentacamLocalResults(limit = 50000) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const safeLimit = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(100000, Number(limit))) : 50000;
+  return await db
+    .select({
+      id: pentacamResults.id,
+      patientId: pentacamResults.patientId,
+      notes: pentacamResults.notes,
+      createdAt: pentacamResults.createdAt,
+      updatedAt: pentacamResults.updatedAt,
+    })
+    .from(pentacamResults)
+    .orderBy(desc(pentacamResults.createdAt))
+    .limit(safeLimit);
+}
+
+export async function reassignPentacamResultPatient(resultId: number, patientId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(pentacamResults)
+    .set({ patientId })
+    .where(eq(pentacamResults.id, resultId));
+}
+
+export async function deletePentacamResultsByIds(ids: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const normalized = Array.from(
+    new Set(
+      (ids ?? [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    )
+  );
+  if (normalized.length === 0) return 0;
+  await db.delete(pentacamResults).where(inArray(pentacamResults.id, normalized));
+  return normalized.length;
+}
+
 // ============ DOCTOR REPORT OPERATIONS ============
 
 export async function createDoctorReport(reportData: any) {

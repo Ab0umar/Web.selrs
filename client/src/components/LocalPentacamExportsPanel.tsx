@@ -54,6 +54,19 @@ type PatientSearchResult = {
   fullName: string;
 };
 
+type MismatchedLinkItem = {
+  resultId: number;
+  fileName: string;
+  currentPatientId: number;
+  currentPatientCode: string;
+  currentPatientName: string;
+  codeCandidates: string[];
+  kind: "obvious" | "ambiguous";
+  suggestedPatientId?: number;
+  suggestedPatientCode?: string;
+  suggestedPatientName?: string;
+};
+
 function extractNameHintFromPentacamFile(fileName: string): string {
   const stem = String(fileName ?? "").replace(/\.[^.]+$/, "");
   return stem.replace(/_(OD|OS)_\d{8}_\d{6}_.+$/i, "").replace(/_/g, " ").trim();
@@ -74,6 +87,8 @@ export default function LocalPentacamExportsPanel({ patientId }: LocalPentacamEx
   const [manualSearchTermByFile, setManualSearchTermByFile] = useState<Record<string, string>>({});
   const [manualSearchResultsByFile, setManualSearchResultsByFile] = useState<Record<string, PatientSearchResult[]>>({});
   const [manualSearchLoadingByFile, setManualSearchLoadingByFile] = useState<Record<string, boolean>>({});
+  const [mismatchedLinks, setMismatchedLinks] = useState<MismatchedLinkItem[]>([]);
+  const [mismatchLoading, setMismatchLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const targetPatientId = Number(patientId ?? 0);
   const utils = trpc.useUtils();
@@ -81,6 +96,9 @@ export default function LocalPentacamExportsPanel({ patientId }: LocalPentacamEx
   const autoImportMutation = trpc.medical.autoImportLocalPentacamExports.useMutation();
   const unmatchedSuggestionsMutation = trpc.medical.getUnmatchedLocalPentacamSuggestions.useMutation();
   const searchPentacamPatientsMutation = trpc.medical.searchPentacamPatients.useMutation();
+  const mismatchedLinksMutation = trpc.medical.getMismatchedLocalPentacamLinks.useMutation();
+  const unlinkMismatchedMutation = trpc.medical.unlinkMismatchedLocalPentacamLinks.useMutation();
+  const reassignLinkMutation = trpc.medical.reassignLocalPentacamLink.useMutation();
 
   const hasItems = useMemo(() => items.length > 0, [items.length]);
   const filteredItems = useMemo(() => {
@@ -206,6 +224,45 @@ export default function LocalPentacamExportsPanel({ patientId }: LocalPentacamEx
       }
     } catch (error: unknown) {
       toast.error(getTrpcErrorMessage(error, "Failed to link file."));
+    }
+  }
+
+  async function loadMismatchedLinks() {
+    setMismatchLoading(true);
+    try {
+      const result = await mismatchedLinksMutation.mutateAsync({ limit: 80000 });
+      const rows = Array.isArray((result as any)?.rows) ? ((result as any).rows as MismatchedLinkItem[]) : [];
+      setMismatchedLinks(rows);
+    } catch (error: unknown) {
+      toast.error(getTrpcErrorMessage(error, "Failed to scan mismatched links."));
+    } finally {
+      setMismatchLoading(false);
+    }
+  }
+
+  async function unlinkObviousMismatches() {
+    try {
+      const result = await unlinkMismatchedMutation.mutateAsync({ obviousOnly: true, limit: 80000 });
+      toast.success(`Unlinked ${Number((result as any)?.deleted ?? 0)} mismatched link(s).`);
+      await loadMismatchedLinks();
+      if (targetPatientId > 0) {
+        await utils.medical.getPentacamFilesByPatient.invalidate({ patientId: targetPatientId, limit: 100 });
+      }
+    } catch (error: unknown) {
+      toast.error(getTrpcErrorMessage(error, "Failed to unlink mismatched links."));
+    }
+  }
+
+  async function reassignMismatch(resultId: number, patientId: number) {
+    try {
+      await reassignLinkMutation.mutateAsync({ resultId, patientId });
+      toast.success(`Reassigned result #${resultId} to patient ${patientId}.`);
+      await loadMismatchedLinks();
+      if (targetPatientId > 0) {
+        await utils.medical.getPentacamFilesByPatient.invalidate({ patientId: targetPatientId, limit: 100 });
+      }
+    } catch (error: unknown) {
+      toast.error(getTrpcErrorMessage(error, "Failed to reassign link."));
     }
   }
 
@@ -474,6 +531,69 @@ export default function LocalPentacamExportsPanel({ patientId }: LocalPentacamEx
             </div>
           </div>
         ) : null}
+        <div className="mb-4 rounded border p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-medium">
+              Mismatched Existing Links ({mismatchedLinks.length})
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={loadMismatchedLinks} disabled={mismatchLoading}>
+                {mismatchLoading ? "Scanning..." : "Scan mismatches"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={unlinkObviousMismatches}
+                disabled={unlinkMismatchedMutation.isPending}
+              >
+                {unlinkMismatchedMutation.isPending ? "Unlinking..." : "Unlink obvious"}
+              </Button>
+            </div>
+          </div>
+          {mismatchedLinks.length > 0 ? (
+            <div className="space-y-2 max-h-72 overflow-auto pr-1">
+              {mismatchedLinks.map((row) => (
+                <div key={`mismatch-${row.resultId}`} className="rounded border p-2 text-xs space-y-1">
+                  <div className="break-all font-medium">#{row.resultId} - {row.fileName}</div>
+                  <div className="text-muted-foreground">
+                    current: {row.currentPatientCode || row.currentPatientId} {row.currentPatientName}
+                  </div>
+                  <div className="text-muted-foreground">codes: {row.codeCandidates.join(", ")}</div>
+                  {row.kind === "obvious" && row.suggestedPatientId ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => reassignMismatch(row.resultId, Number(row.suggestedPatientId))}
+                        disabled={reassignLinkMutation.isPending}
+                      >
+                        Reassign to {row.suggestedPatientCode} {row.suggestedPatientName}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          await unlinkMismatchedMutation.mutateAsync({ resultIds: [row.resultId] });
+                          await loadMismatchedLinks();
+                        }}
+                        disabled={unlinkMismatchedMutation.isPending}
+                      >
+                        Unlink
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="text-amber-600">Ambiguous: manual decision required.</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">Run scan to load mismatched linked files.</div>
+          )}
+        </div>
         {hasItems ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {visibleItems.map((item) => (

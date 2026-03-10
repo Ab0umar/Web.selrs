@@ -228,42 +228,21 @@ function normalizePentacamMatchText(raw: unknown): string {
 
 function extractPatientCodeCandidatesFromFileName(fileName: string): string[] {
   const stem = path.parse(String(fileName ?? "")).name;
-  const tokens = stem.split(/[^0-9A-Za-z]+/).filter(Boolean);
-  const timestampMatch = stem.match(/_(\d{8})_(\d{6})_/);
-  const timestampDate = String(timestampMatch?.[1] ?? "");
-  const timestampTime = String(timestampMatch?.[2] ?? "");
   const out = new Set<string>();
-  const addNumericVariants = (rawDigits: string) => {
-    const digits = String(rawDigits ?? "").trim();
-    if (!/^\d{3,12}$/.test(digits)) return;
-    out.add(digits);
-    const trimmed = digits.replace(/^0+/, "");
-    if (trimmed) out.add(trimmed);
-    out.add(digits.padStart(4, "0"));
-  };
-  for (const token of tokens) {
-    const normalized = String(token ?? "").trim();
-    if (!normalized) continue;
-    // Ignore actual timestamp pieces only when they match the parsed filename timestamp.
-    if (normalized === timestampDate || normalized === timestampTime) continue;
+  const parts = stem.split(/[^0-9A-Za-z]+/).filter(Boolean);
+  const first = String(parts[0] ?? "").trim();
+  if (!first) return [];
 
-    if (/^\d{3,12}$/.test(normalized)) {
-      addNumericVariants(normalized);
-      continue;
-    }
-
-    // IMAGEnet IDs are often mixed prefix/suffix with numeric code.
-    if (/^[A-Za-z]{1,5}\d{3,12}$/.test(normalized) || /^\d{3,12}[A-Za-z]{1,5}$/.test(normalized)) {
-      out.add(normalized);
-      addNumericVariants(normalized.replace(/\D+/g, ""));
-    }
+  // Clinical-safe: only trust leading token as patient code.
+  if (/^\d{3,12}$/.test(first)) {
+    out.add(first);
+    return Array.from(out);
   }
-  // Also extract any numeric runs from the stem for ID-only formats.
-  for (const match of stem.matchAll(/(?<!\d)\d{3,12}(?!\d)/g)) {
-    const token = String(match[0] ?? "").trim();
-    if (!token) continue;
-    if (token === timestampDate || token === timestampTime) continue;
-    addNumericVariants(token);
+
+  // IMAGEnet variants with short alpha prefix/suffix around numeric code.
+  if (/^[A-Za-z]{1,5}\d{3,12}$/.test(first) || /^\d{3,12}[A-Za-z]{1,5}$/.test(first)) {
+    const digits = first.replace(/\D+/g, "");
+    if (/^\d{3,12}$/.test(digits)) out.add(digits);
   }
   return Array.from(out);
 }
@@ -372,11 +351,9 @@ function tokenizePentacamMatchText(value: string): string[] {
 
 async function buildPentacamPatientCandidates(): Promise<{
   byCode: Map<string, any>;
-  byCodeDigits: Map<string, any>;
   candidates: PentacamPatientCandidate[];
 }> {
   const byCode = new Map<string, any>();
-  const byCodeDigits = new Map<string, any>();
   const candidates: PentacamPatientCandidate[] = [];
   let cursor: { codeNum: number; patientCode: string; id: number } | undefined = undefined;
   for (let page = 0; page < 100; page += 1) {
@@ -387,11 +364,6 @@ async function buildPentacamPatientCandidates(): Promise<{
       if (patientCode) {
         byCode.set(patientCode, row);
         byCode.set(patientCode.toUpperCase(), row);
-        const digits = patientCode.replace(/\D+/g, "");
-        if (/^\d{3,12}$/.test(digits)) {
-          const trimmed = digits.replace(/^0+/, "") || "0";
-          byCodeDigits.set(trimmed, row);
-        }
       }
       const fullName = String((row as any)?.fullName ?? "").trim();
       const keys = buildPentacamNameKeys(fullName);
@@ -412,26 +384,20 @@ async function buildPentacamPatientCandidates(): Promise<{
     cursor = (batch as any)?.nextCursor ?? undefined;
     if (!cursor) break;
   }
-  return { byCode, byCodeDigits, candidates };
+  return { byCode, candidates };
 }
 
 function resolvePatientForPentacamFileName(
   fileName: string,
-  matcher: { byCode: Map<string, any>; byCodeDigits: Map<string, any>; candidates: PentacamPatientCandidate[] }
+  matcher: { byCode: Map<string, any>; candidates: PentacamPatientCandidate[] }
 ): { patient: any; matchedBy: string } | null {
   const codeCandidates = extractPatientCodeCandidatesFromFileName(fileName);
+  const hasExplicitCode = codeCandidates.length > 0;
   for (const candidate of codeCandidates) {
-    const patient =
-      matcher.byCode.get(candidate) ??
-      matcher.byCode.get(candidate.toUpperCase()) ??
-      (() => {
-        const digits = candidate.replace(/\D+/g, "");
-        if (!/^\d{3,12}$/.test(digits)) return null;
-        const trimmed = digits.replace(/^0+/, "") || "0";
-        return matcher.byCodeDigits.get(trimmed) ?? null;
-      })();
+    const patient = matcher.byCode.get(candidate) ?? matcher.byCode.get(candidate.toUpperCase());
     if (patient) return { patient, matchedBy: `code:${candidate}` };
   }
+  if (hasExplicitCode) return null;
 
   const nameFragment = extractPentacamNameFragment(fileName);
   const stem = path.parse(String(fileName ?? "")).name;
@@ -500,7 +466,7 @@ function resolvePatientForPentacamFileName(
     for (const token of fileTokens) {
       if (candidate.tokenSet.has(token)) overlap += 1;
     }
-    if (overlap < 1) continue;
+    if (overlap < 2) continue;
     const dayDiff = patientDayDiff(candidate.patient);
     if (
       !bestToken ||
@@ -516,8 +482,11 @@ function resolvePatientForPentacamFileName(
   if (bestToken) return { patient: bestToken.patient, matchedBy: bestToken.matchedBy };
 
   // Third pass: Arabic-English phonetic overlap.
+  // Guardrail: phonetic similarity alone is too risky for lookalike Arabic names
+  // (e.g. حسين vs حسناء). Require both phonetic overlap and at least one exact token overlap.
   const fileTokenSignatures = buildPentacamTokenSignatureSet(workingFragment);
   if (fileTokenSignatures.size === 0) return null;
+  const hasArabicCharsInFile = /[\u0600-\u06FF]/.test(workingFragment);
 
   let bestPhonetic: { patient: any; overlap: number; matchedBy: string; dayDiff: number } | null = null;
   for (const candidate of matcher.candidates) {
@@ -527,7 +496,17 @@ function resolvePatientForPentacamFileName(
         overlap += 1;
       }
     }
-    if (overlap < 1) continue;
+    if (overlap < 2) continue;
+    let exactTokenOverlap = 0;
+    for (const token of fileTokens) {
+      if (candidate.tokenSet.has(token)) exactTokenOverlap += 1;
+    }
+    // Cross-language filenames (English) often have zero exact token overlap vs Arabic DB names.
+    // Allow them only when phonetic signal is strong enough.
+    if (exactTokenOverlap < 1) {
+      if (hasArabicCharsInFile) continue;
+      if (overlap < 3) continue;
+    }
     const dayDiff = patientDayDiff(candidate.patient);
     if (
       !bestPhonetic ||
@@ -543,30 +522,13 @@ function resolvePatientForPentacamFileName(
 
   if (bestPhonetic) return { patient: bestPhonetic.patient, matchedBy: bestPhonetic.matchedBy };
 
-  // Aggressive fallback: pick highest token overlap even if weak.
-  let fallback: { patient: any; overlap: number; dayDiff: number } | null = null;
-  for (const candidate of matcher.candidates) {
-    let overlap = 0;
-    for (const token of fileTokens) {
-      if (candidate.tokenSet.has(token)) overlap += 1;
-    }
-    if (overlap <= 0) continue;
-    const dayDiff = patientDayDiff(candidate.patient);
-    if (
-      !fallback ||
-      overlap > fallback.overlap ||
-      (overlap === fallback.overlap && dayDiff < fallback.dayDiff)
-    ) {
-      fallback = { patient: candidate.patient, overlap, dayDiff };
-    }
-  }
-  if (fallback) return { patient: fallback.patient, matchedBy: `fallback-tokens:${fallback.overlap}` };
+  // No aggressive fallback in clinical mode.
   return null;
 }
 
 function suggestPatientsForPentacamFileName(
   fileName: string,
-  matcher: { byCode: Map<string, any>; byCodeDigits: Map<string, any>; candidates: PentacamPatientCandidate[] },
+  matcher: { byCode: Map<string, any>; candidates: PentacamPatientCandidate[] },
   limit: number = 3
 ): Array<{ patient: any; matchedBy: string; score: number }> {
   const nameFragment = extractPentacamNameFragment(fileName);
@@ -609,7 +571,7 @@ function suggestPatientsForPentacamFileName(
 
     const strongInclude = includeScore >= 6;
     const goodTokenSignal = tokenOverlap >= 2;
-    const goodPhoneticSignal = phoneticOverlap >= 2;
+    const goodPhoneticSignal = phoneticOverlap >= 2 && tokenOverlap >= 1;
     if (!strongInclude && !goodTokenSignal && !goodPhoneticSignal) continue;
 
     const score = includeScore * 100 + tokenOverlap * 20 + phoneticOverlap * 12;
@@ -716,6 +678,94 @@ function parsePentacamLocalMeta(notes: unknown): null | {
   } catch {
     return null;
   }
+}
+
+function stripLeadingCodeLabel(fileName: string): string {
+  const raw = String(fileName ?? "").trim();
+  if (!raw) return raw;
+  return raw.replace(/^([A-Za-z]{1,5}\d{3,12}|\d{3,12})[_\-\s]+/i, "");
+}
+
+type LocalPentacamMismatchEntry = {
+  resultId: number;
+  fileName: string;
+  currentPatientId: number;
+  currentPatientCode: string;
+  currentPatientName: string;
+  codeCandidates: string[];
+  kind: "obvious" | "ambiguous";
+  suggestedPatientId?: number;
+  suggestedPatientCode?: string;
+  suggestedPatientName?: string;
+};
+
+async function scanMismatchedLocalPentacamLinks(limit: number): Promise<LocalPentacamMismatchEntry[]> {
+  const matcher = await buildPentacamPatientCandidates();
+  const byPatientId = new Map<number, any>();
+  for (const candidate of matcher.candidates) {
+    const id = Number((candidate.patient as any)?.id ?? 0);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    if (!byPatientId.has(id)) byPatientId.set(id, candidate.patient);
+  }
+
+  const rows = await db.getRecentPentacamLocalResults(limit);
+  const out: LocalPentacamMismatchEntry[] = [];
+  for (const row of rows as any[]) {
+    const meta = parsePentacamLocalMeta((row as any)?.notes);
+    const fileName = String(meta?.originalFileName ?? meta?.sourceFileName ?? "").trim();
+    if (!fileName) continue;
+    const codeCandidates = Array.from(
+      new Set(
+        extractPatientCodeCandidatesFromFileName(fileName).filter((value) => /^\d{3,12}$/.test(String(value)))
+      )
+    );
+    if (codeCandidates.length === 0) continue;
+
+    const currentPatientId = Number((row as any)?.patientId ?? 0);
+    const currentPatient = byPatientId.get(currentPatientId);
+    const currentPatientCode = String((currentPatient as any)?.patientCode ?? "").trim();
+    const currentPatientName = String((currentPatient as any)?.fullName ?? "").trim();
+    if (currentPatientCode && codeCandidates.includes(currentPatientCode)) continue;
+
+    const suggestedCodes = Array.from(
+      new Set(codeCandidates.filter((code) => matcher.byCode.get(code) || matcher.byCode.get(code.toUpperCase())))
+    );
+    if (suggestedCodes.length === 1) {
+      const suggested =
+        matcher.byCode.get(suggestedCodes[0]) ??
+        matcher.byCode.get(suggestedCodes[0].toUpperCase());
+      const suggestedPatientId = Number((suggested as any)?.id ?? 0);
+      if (!Number.isFinite(suggestedPatientId) || suggestedPatientId <= 0) continue;
+      if (suggestedPatientId === currentPatientId) continue;
+      out.push({
+        resultId: Number((row as any)?.id ?? 0),
+        fileName,
+        currentPatientId,
+        currentPatientCode,
+        currentPatientName,
+        codeCandidates,
+        kind: "obvious",
+        suggestedPatientId,
+        suggestedPatientCode: String((suggested as any)?.patientCode ?? "").trim(),
+        suggestedPatientName: String((suggested as any)?.fullName ?? "").trim(),
+      });
+      continue;
+    }
+
+    if (suggestedCodes.length > 1) {
+      out.push({
+        resultId: Number((row as any)?.id ?? 0),
+        fileName,
+        currentPatientId,
+        currentPatientCode,
+        currentPatientName,
+        codeCandidates,
+        kind: "ambiguous",
+      });
+    }
+  }
+
+  return out;
 }
 
 function normalizeVisitType(raw: string): "consultation" | "examination" | "surgery" | "followup" {
@@ -1995,19 +2045,37 @@ export const medicalRouter = router({
       const rows = await db.getPentacamResultsByPatient(input.patientId, input.limit ?? 100);
       return rows.map((row: any) => {
         const meta = parsePentacamLocalMeta(row.notes);
+        const sourceRaw = String(meta?.sourceFileName ?? meta?.originalFileName ?? `Pentacam ${row.id}`);
         return {
           id: row.id,
           patientId: row.patientId,
           visitId: row.visitId,
           eyeSide: meta?.eyeSide ?? "",
           importStatus: meta?.importStatus ?? "imported",
-          sourceFileName: meta?.sourceFileName ?? `Pentacam ${row.id}`,
+          sourceFileName: stripLeadingCodeLabel(sourceRaw),
           storageUrl: meta?.storageUrl ?? "",
           mimeType: meta?.mimeType ?? "",
           capturedAt: meta?.capturedAt ?? row.createdAt ?? null,
           importedAt: meta?.importedAt ?? row.createdAt ?? null,
         };
       });
+    }),
+
+  removePentacamLink: protectedProcedure
+    .input(
+      z.object({
+        resultId: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const deleted = await db.deletePentacamResultsByIds([input.resultId]);
+      await db.logAuditEvent(ctx.user.id, "REMOVE_PENTACAM_LINK", "pentacamResult", input.resultId, {
+        deleted,
+      });
+      return {
+        success: true,
+        deleted,
+      };
     }),
 
   importLocalPentacamExports: adminProcedure
@@ -2080,11 +2148,7 @@ export const medicalRouter = router({
         }
 
         const importedAt = new Date().toISOString();
-        const patientKey = patientCode || String(input.patientId);
-        const labelPrefix = [patientKey, patientNameOrdered].filter(Boolean).join("_");
-        const sourceFileName = patientCode
-          ? `${labelPrefix}_${fileName}`
-          : `${labelPrefix}_${fileName}`;
+        const sourceFileName = stripLeadingCodeLabel(fileName);
         const meta = {
           kind: "local-pentacam-export-v1",
           originalFileName: fileName,
@@ -2209,26 +2273,7 @@ export const medicalRouter = router({
           continue;
         }
 
-        let matched = resolvePatientForPentacamFileName(fileName, matcher);
-        if (!matched?.patient) {
-          // Strict unmatched-only fallback: accept only a clearly dominant, high-confidence suggestion.
-          const suggested = suggestPatientsForPentacamFileName(fileName, matcher, 2);
-          const top = suggested[0];
-          const second = suggested[1];
-          const topScore = Number(top?.score ?? 0);
-          const secondScore = Number(second?.score ?? 0);
-          const topMatchedBy = String(top?.matchedBy ?? "");
-          const dominantTop = !second || secondScore < topScore * 0.85;
-          const nameDriven = topMatchedBy.startsWith("name:");
-          const strongScore = topScore >= 680;
-          const allowTokenFallback = topScore >= 760;
-          if (top && dominantTop && strongScore && (nameDriven || allowTokenFallback)) {
-            matched = {
-              patient: top.patient,
-              matchedBy: `suggest:${topMatchedBy}:${topScore}`,
-            };
-          }
-        }
+        const matched = resolvePatientForPentacamFileName(fileName, matcher);
         if (!matched?.patient) {
           unmatched += 1;
           if (unresolvedFiles.length < 5000) unresolvedFiles.push(fileName);
@@ -2252,9 +2297,7 @@ export const medicalRouter = router({
           reorderPatientNameSecondThirdFirst(String((matched.patient as any).fullName ?? ""))
         );
         const importedAt = new Date().toISOString();
-        const patientKey = patientCode || String(patientId);
-        const labelPrefix = [patientKey, patientNameOrdered].filter(Boolean).join("_");
-        const sourceFileName = `${labelPrefix}_${fileName}`;
+        const sourceFileName = stripLeadingCodeLabel(fileName);
         const meta = {
           kind: "local-pentacam-export-v1",
           originalFileName: fileName,
@@ -2348,6 +2391,77 @@ export const medicalRouter = router({
         success: true,
         count: suggestions.length,
         suggestions,
+      };
+    }),
+
+  getMismatchedLocalPentacamLinks: adminProcedure
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(100000).optional(),
+      }).optional()
+    )
+    .mutation(async ({ input }) => {
+      const limit = Number(input?.limit ?? 80000);
+      const rows = await scanMismatchedLocalPentacamLinks(limit);
+      return {
+        success: true,
+        count: rows.length,
+        obviousCount: rows.filter((row) => row.kind === "obvious").length,
+        ambiguousCount: rows.filter((row) => row.kind === "ambiguous").length,
+        rows,
+      };
+    }),
+
+  unlinkMismatchedLocalPentacamLinks: adminProcedure
+    .input(
+      z.object({
+        resultIds: z.array(z.number().int().positive()).optional(),
+        obviousOnly: z.boolean().optional(),
+        limit: z.number().int().min(1).max(100000).optional(),
+      }).optional()
+    )
+    .mutation(async ({ input, ctx }) => {
+      const explicitIds = Array.isArray(input?.resultIds) ? input!.resultIds : [];
+      let ids = explicitIds;
+      if (ids.length === 0) {
+        const scanned = await scanMismatchedLocalPentacamLinks(Number(input?.limit ?? 80000));
+        const obviousOnly = input?.obviousOnly !== false;
+        ids = scanned
+          .filter((row) => (obviousOnly ? row.kind === "obvious" : true))
+          .map((row) => row.resultId);
+      }
+      const deleted = await db.deletePentacamResultsByIds(ids);
+      await db.logAuditEvent(ctx.user.id, "UNLINK_MISMATCHED_LOCAL_PENTACAM", "pentacamResult", 0, {
+        requested: ids.length,
+        deleted,
+      });
+      return {
+        success: true,
+        requested: ids.length,
+        deleted,
+      };
+    }),
+
+  reassignLocalPentacamLink: adminProcedure
+    .input(
+      z.object({
+        resultId: z.number().int().positive(),
+        patientId: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const patient = await db.getPatientById(input.patientId);
+      if (!patient) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Patient not found" });
+      }
+      await db.reassignPentacamResultPatient(input.resultId, input.patientId);
+      await db.logAuditEvent(ctx.user.id, "REASSIGN_LOCAL_PENTACAM_LINK", "pentacamResult", input.resultId, {
+        patientId: input.patientId,
+      });
+      return {
+        success: true,
+        resultId: input.resultId,
+        patientId: input.patientId,
       };
     }),
 

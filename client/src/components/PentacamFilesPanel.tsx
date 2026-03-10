@@ -1,9 +1,11 @@
-import { useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { getTrpcErrorMessage } from "@/lib/utils";
+import { useEffect, useMemo, useState } from "react";
 
 type PentacamFilesPanelProps = {
   patientId?: number | null;
@@ -28,6 +30,8 @@ function normalizeUrl(raw: unknown) {
 
 export default function PentacamFilesPanel({ patientId, compact = false }: PentacamFilesPanelProps) {
   const targetPatientId = Number(patientId ?? 0);
+  const utils = trpc.useUtils();
+  const [selected, setSelected] = useState<Record<number, boolean>>({});
   const filesQuery = trpc.medical.getPentacamFilesByPatient.useQuery(
     { patientId: targetPatientId, limit: compact ? 20 : 100 },
     {
@@ -36,8 +40,50 @@ export default function PentacamFilesPanel({ patientId, compact = false }: Penta
       refetchInterval: 4000,
     }
   );
+  const removeLinkMutation = trpc.medical.removePentacamLink.useMutation();
 
   const files = useMemo(() => (Array.isArray(filesQuery.data) ? filesQuery.data : []), [filesQuery.data]);
+  const selectedIds = useMemo(
+    () =>
+      Object.entries(selected)
+        .filter(([, checked]) => Boolean(checked))
+        .map(([id]) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    [selected]
+  );
+
+  useEffect(() => {
+    const valid = new Set(
+      files
+        .map((row: any) => Number(row?.id ?? 0))
+        .filter((id: number) => Number.isFinite(id) && id > 0)
+    );
+    setSelected((prev: Record<number, boolean>) => {
+      const next: Record<number, boolean> = {};
+      for (const [idRaw, checked] of Object.entries(prev)) {
+        const id = Number(idRaw);
+        if (valid.has(id)) next[id] = Boolean(checked);
+      }
+      return next;
+    });
+  }, [files]);
+
+  async function removeSelected() {
+    if (selectedIds.length === 0) return;
+    try {
+      for (const resultId of selectedIds) {
+        await removeLinkMutation.mutateAsync({ resultId });
+      }
+      toast.success(`Removed ${selectedIds.length} link(s).`);
+      setSelected({});
+      await utils.medical.getPentacamFilesByPatient.invalidate({
+        patientId: targetPatientId,
+        limit: compact ? 20 : 100,
+      });
+    } catch (error: unknown) {
+      toast.error(getTrpcErrorMessage(error, "Failed to remove selected links."));
+    }
+  }
 
   if (!targetPatientId) {
     return (
@@ -55,6 +101,15 @@ export default function PentacamFilesPanel({ patientId, compact = false }: Penta
           <RefreshCw className={`h-4 w-4 ${filesQuery.isFetching ? "animate-spin" : ""}`} />
           Refresh
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={removeSelected}
+          disabled={removeLinkMutation.isPending || selectedIds.length === 0}
+        >
+          {removeLinkMutation.isPending ? "Removing..." : `Remove Selected (${selectedIds.length})`}
+        </Button>
       </CardHeader>
       <CardContent>
         {files.length === 0 ? (
@@ -71,6 +126,18 @@ export default function PentacamFilesPanel({ patientId, compact = false }: Penta
               const fileName = String(row?.sourceFileName ?? "file");
               return (
                 <div key={row?.id ?? `${fileName}-${row?.importedAt ?? ""}`} className="rounded border p-2 space-y-2">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected[Number(row?.id ?? 0)])}
+                      onChange={(e) => {
+                        const resultId = Number(row?.id ?? 0);
+                        if (!Number.isFinite(resultId) || resultId <= 0) return;
+                        setSelected((prev: Record<number, boolean>) => ({ ...prev, [resultId]: e.target.checked }));
+                      }}
+                    />
+                    Select
+                  </label>
                   <div className="flex items-center justify-between gap-2">
                     <Badge variant={status === "imported" ? "default" : "secondary"}>{status || "unknown"}</Badge>
                     <span className="text-xs text-muted-foreground">{String(row?.eyeSide ?? "")}</span>
@@ -91,6 +158,30 @@ export default function PentacamFilesPanel({ patientId, compact = false }: Penta
                   )}
                   <div className="text-xs text-muted-foreground break-all">{fileName}</div>
                   <div className="text-[11px] text-muted-foreground">{formatDate(row?.capturedAt || row?.importedAt)}</div>
+                  <div className="pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={removeLinkMutation.isPending}
+                      onClick={async () => {
+                        const resultId = Number(row?.id ?? 0);
+                        if (!Number.isFinite(resultId) || resultId <= 0) return;
+                        try {
+                          await removeLinkMutation.mutateAsync({ resultId });
+                          toast.success("Pentacam link removed.");
+                          await utils.medical.getPentacamFilesByPatient.invalidate({
+                            patientId: targetPatientId,
+                            limit: compact ? 20 : 100,
+                          });
+                        } catch (error: unknown) {
+                          toast.error(getTrpcErrorMessage(error, "Failed to remove Pentacam link."));
+                        }
+                      }}
+                    >
+                      Remove Link
+                    </Button>
+                  </div>
                 </div>
               );
             })}
