@@ -2045,14 +2045,14 @@ export const medicalRouter = router({
       const rows = await db.getPentacamResultsByPatient(input.patientId, input.limit ?? 100);
       return rows.map((row: any) => {
         const meta = parsePentacamLocalMeta(row.notes);
-        const sourceRaw = String(meta?.sourceFileName ?? meta?.originalFileName ?? `Pentacam ${row.id}`);
+        const sourceRaw = String(meta?.originalFileName ?? meta?.sourceFileName ?? `Pentacam ${row.id}`);
         return {
           id: row.id,
           patientId: row.patientId,
           visitId: row.visitId,
           eyeSide: meta?.eyeSide ?? "",
           importStatus: meta?.importStatus ?? "imported",
-          sourceFileName: stripLeadingCodeLabel(sourceRaw),
+          sourceFileName: sourceRaw,
           storageUrl: meta?.storageUrl ?? "",
           mimeType: meta?.mimeType ?? "",
           capturedAt: meta?.capturedAt ?? row.createdAt ?? null,
