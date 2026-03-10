@@ -27,6 +27,8 @@ interface DoctorOption {
   doctorType?: "consultant" | "specialist";
 }
 
+const PATIENT_DATA_EDIT_PERMISSION = "/patient-data/edit";
+
 export default function ExaminationForm() {
   const EXAM_AUTO_SAVE_ENABLED = false;
   const { user, isAuthenticated } = useAuth();
@@ -114,9 +116,7 @@ export default function ExaminationForm() {
   const myPermissions = (permissionsQuery.data ?? []) as string[];
   const receptionHasPatientEditPermission =
     normalizedRole === "reception" &&
-    (myPermissions.includes("/patients/:id") ||
-      myPermissions.includes("/patients") ||
-      myPermissions.includes("/examination"));
+    myPermissions.includes(PATIENT_DATA_EDIT_PERMISSION);
   const canEditPatientData = normalizedRole === "admin" || receptionHasPatientEditPermission;
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [serviceCode, setServiceCode] = useState("");

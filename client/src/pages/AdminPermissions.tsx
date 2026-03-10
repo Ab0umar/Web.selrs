@@ -39,6 +39,7 @@ const ROLE_LABELS: Record<TeamRole, string> = {
 
 const PAGE_PERMISSIONS = [
   { id: "/dashboard", label: "Dashboard" },
+  { id: "/patient-data/edit", label: "Edit Patient Data (Dashboard / Examination)" },
   { id: "/patients", label: "Patients" },
   { id: "/patients/:id", label: "Patient Details" },
   { id: "/examination", label: "Examinations" },

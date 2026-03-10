@@ -29,6 +29,8 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { getTrpcErrorMessage } from "@/lib/utils";
 
+const PATIENT_DATA_EDIT_PERMISSION = "/patient-data/edit";
+
 export default function Dashboard() {
   const { user, logout, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
@@ -249,6 +251,9 @@ export default function Dashboard() {
   const { cards, adminCards } = getDashboardCards();
   const isReception = user?.role === "reception";
   const showPatientDataPanel = user?.role === "reception" || user?.role === "admin";
+  const canEditPatientData =
+    user?.role === "admin" ||
+    (user?.role === "reception" && allowedPaths.includes(PATIENT_DATA_EDIT_PERMISSION));
   const canSeeTodayPatients = ["doctor", "nurse", "technician", "manager", "admin"].includes(user?.role ?? "");
   const [todayPatientsExpanded, setTodayPatientsExpanded] = useState(user?.role !== "admin");
   const mainOrder = [
@@ -409,7 +414,10 @@ export default function Dashboard() {
         <div className={showPatientDataPanel ? "space-y-6" : ""} dir="rtl">
           {showPatientDataPanel && (
             <div className="w-full">
-              <ReceptionPatientInfoPanel onOpenExamination={() => setLocation("/examination")} />
+              <ReceptionPatientInfoPanel
+                canEditPatientData={canEditPatientData}
+                onOpenExamination={() => setLocation("/examination")}
+              />
             </div>
           )}
           {canSeeTodayPatients && (
@@ -523,7 +531,13 @@ export default function Dashboard() {
   );
 }
 
-function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: () => void }) {
+function ReceptionPatientInfoPanel({
+  canEditPatientData,
+  onOpenExamination,
+}: {
+  canEditPatientData: boolean;
+  onOpenExamination: () => void;
+}) {
   const normalizeServiceType = (value: unknown): "consultant" | "specialist" | "lasik" | "surgery" | "external" => {
     const raw = String(value ?? "").trim().toLowerCase();
     if (raw === "specialist" || raw === "lasik" || raw === "surgery" || raw === "external") return raw;
@@ -703,6 +717,10 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
     try {
       let targetPatientId = Number(patientInfo.id ?? 0);
       if (!targetPatientId) {
+        if (!canEditPatientData) {
+          toast.error("ليس لديك صلاحية تعديل بيانات المريض");
+          return;
+        }
         const fullName = String(patientInfo.name ?? "").trim();
         const phone = String(patientDetails.phone ?? "").trim();
         if (!fullName) {
@@ -736,7 +754,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
           id: targetPatientId,
           code: String((created as any)?.patientCode ?? prev.code ?? ""),
         }));
-      } else {
+      } else if (canEditPatientData) {
         await updatePatientMutation.mutateAsync({
           patientId: targetPatientId,
           updates: {
@@ -799,6 +817,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
                 style={{ textAlign: "right" }}
                 value={patientInfo.name}
                 onChange={(e) => setPatientInfo((p) => ({ ...p, name: e.target.value }))}
+                readOnly={!canEditPatientData}
               />
             </div>
             <div className="flex items-center gap-2 min-w-0">
@@ -809,6 +828,8 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
                 type="date"
                 value={patientDetails.dateOfBirth}
                 onChange={(e) => setPatientDetails((p) => ({ ...p, dateOfBirth: e.target.value }))}
+                readOnly={!canEditPatientData}
+                disabled={!canEditPatientData}
               />
             </div>
             <div className="flex items-center gap-2 min-w-0">
@@ -825,6 +846,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
                 style={{ textAlign: "right" }}
                 value={patientDetails.address}
                 onChange={(e) => setPatientDetails((p) => ({ ...p, address: e.target.value }))}
+                readOnly={!canEditPatientData}
               />
             </div>
             <div className="flex items-center gap-2 min-w-0">
@@ -834,6 +856,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
                 style={{ textAlign: "right" }}
                 value={patientDetails.phone}
                 onChange={(e) => setPatientDetails((p) => ({ ...p, phone: e.target.value.replace(/\D+/g, "") }))}
+                readOnly={!canEditPatientData}
               />
             </div>
             <div className="flex items-center gap-2 min-w-0">
@@ -845,6 +868,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
                 onChange={(e) => setPatientInfo((p) => ({ ...p, code: formatPatientCode(e.target.value) }))}
                 onBlur={(e) => setPatientInfo((p) => ({ ...p, code: formatPatientCode(e.target.value) }))}
                 dir="ltr"
+                readOnly={!canEditPatientData}
               />
             </div>
             <div className="flex items-center gap-2 min-w-0">
@@ -854,6 +878,7 @@ function ReceptionPatientInfoPanel({ onOpenExamination }: { onOpenExamination: (
                 style={{ textAlign: "right" }}
                 value={patientDetails.job}
                 onChange={(e) => setPatientDetails((p) => ({ ...p, job: e.target.value }))}
+                readOnly={!canEditPatientData}
               />
             </div>
           </div>
