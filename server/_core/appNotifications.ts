@@ -1,6 +1,7 @@
 import * as db from "../db";
 
 export const APP_NOTIFICATION_FEED_KEY = "app_notifications_feed_v1";
+export const APP_NOTIFICATION_SETTINGS_KEY = "app_notification_settings_v1";
 const APP_NOTIFICATION_FEED_LIMIT = 50;
 
 export type AppNotificationEntry = {
@@ -23,6 +24,18 @@ type PushAppNotificationInput = {
   entityType?: string | null;
   entityId?: number | null;
   meta?: Record<string, unknown> | null;
+};
+
+export type AppNotificationSettings = {
+  mssqlOwnerEnabled: boolean;
+  mssqlInAppEnabled: boolean;
+  manualPatientInAppEnabled: boolean;
+};
+
+const DEFAULT_APP_NOTIFICATION_SETTINGS: AppNotificationSettings = {
+  mssqlOwnerEnabled: true,
+  mssqlInAppEnabled: true,
+  manualPatientInAppEnabled: true,
 };
 
 const normalizeFeed = (value: unknown): AppNotificationEntry[] => {
@@ -80,4 +93,28 @@ export async function pushAppNotification(input: PushAppNotificationInput): Prom
   const nextFeed = [entry, ...existingFeed].slice(0, APP_NOTIFICATION_FEED_LIMIT);
   await db.updateSystemSettings(APP_NOTIFICATION_FEED_KEY, nextFeed);
   return entry;
+}
+
+export async function getAppNotificationSettings(): Promise<AppNotificationSettings> {
+  const row = await db.getSystemSetting(APP_NOTIFICATION_SETTINGS_KEY).catch(() => null);
+  if (!row?.value) return DEFAULT_APP_NOTIFICATION_SETTINGS;
+  try {
+    const parsed = JSON.parse(String(row.value)) as Record<string, unknown>;
+    return {
+      mssqlOwnerEnabled:
+        typeof parsed.mssqlOwnerEnabled === "boolean"
+          ? parsed.mssqlOwnerEnabled
+          : DEFAULT_APP_NOTIFICATION_SETTINGS.mssqlOwnerEnabled,
+      mssqlInAppEnabled:
+        typeof parsed.mssqlInAppEnabled === "boolean"
+          ? parsed.mssqlInAppEnabled
+          : DEFAULT_APP_NOTIFICATION_SETTINGS.mssqlInAppEnabled,
+      manualPatientInAppEnabled:
+        typeof parsed.manualPatientInAppEnabled === "boolean"
+          ? parsed.manualPatientInAppEnabled
+          : DEFAULT_APP_NOTIFICATION_SETTINGS.manualPatientInAppEnabled,
+    };
+  } catch {
+    return DEFAULT_APP_NOTIFICATION_SETTINGS;
+  }
 }

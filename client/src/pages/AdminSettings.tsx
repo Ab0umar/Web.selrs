@@ -20,7 +20,18 @@ import { DEFAULT_APPOINTMENTS_PRICING } from "./Appointments";
 const KEY = "selrs_preferred_url";
 const PRICING_SETTING_KEY = "appointments_pricing_v1";
 const MOBILE_SHEET_MODE_KEY = "mobile_sheet_mode_v1";
+const APP_NOTIFICATION_SETTINGS_KEY = "app_notification_settings_v1";
 type PricingConfig = typeof DEFAULT_APPOINTMENTS_PRICING;
+type AppNotificationSettings = {
+  mssqlOwnerEnabled: boolean;
+  mssqlInAppEnabled: boolean;
+  manualPatientInAppEnabled: boolean;
+};
+const DEFAULT_APP_NOTIFICATION_SETTINGS: AppNotificationSettings = {
+  mssqlOwnerEnabled: true,
+  mssqlInAppEnabled: true,
+  manualPatientInAppEnabled: true,
+};
 const clonePricing = (value: PricingConfig): PricingConfig => JSON.parse(JSON.stringify(value));
 const toSafeNumber = (value: unknown) => {
   const n = Number(value);
@@ -38,11 +49,33 @@ export default function AdminSettings() {
     { key: PRICING_SETTING_KEY },
     { refetchOnWindowFocus: false }
   );
+  const appNotificationSettingsQuery = trpc.medical.getSystemSetting.useQuery(
+    { key: APP_NOTIFICATION_SETTINGS_KEY },
+    { refetchOnWindowFocus: false }
+  );
   const mobileSheetModeSettingQuery = trpc.medical.getSystemSetting.useQuery(
     { key: MOBILE_SHEET_MODE_KEY },
     { refetchOnWindowFocus: false }
   );
   const updateSettingMutation = trpc.medical.updateSystemSetting.useMutation();
+  const appNotificationSettingsValueRaw = (appNotificationSettingsQuery.data as any)?.value;
+  const appNotificationSettings: AppNotificationSettings =
+    appNotificationSettingsValueRaw && typeof appNotificationSettingsValueRaw === "object"
+      ? {
+          mssqlOwnerEnabled:
+            typeof appNotificationSettingsValueRaw.mssqlOwnerEnabled === "boolean"
+              ? appNotificationSettingsValueRaw.mssqlOwnerEnabled
+              : DEFAULT_APP_NOTIFICATION_SETTINGS.mssqlOwnerEnabled,
+          mssqlInAppEnabled:
+            typeof appNotificationSettingsValueRaw.mssqlInAppEnabled === "boolean"
+              ? appNotificationSettingsValueRaw.mssqlInAppEnabled
+              : DEFAULT_APP_NOTIFICATION_SETTINGS.mssqlInAppEnabled,
+          manualPatientInAppEnabled:
+            typeof appNotificationSettingsValueRaw.manualPatientInAppEnabled === "boolean"
+              ? appNotificationSettingsValueRaw.manualPatientInAppEnabled
+              : DEFAULT_APP_NOTIFICATION_SETTINGS.manualPatientInAppEnabled,
+        }
+      : DEFAULT_APP_NOTIFICATION_SETTINGS;
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -86,6 +119,27 @@ export default function AdminSettings() {
       toast.success(enabled ? "Mobile sheet mode enabled" : "Mobile sheet mode disabled");
     } catch (error) {
       toast.error(getTrpcErrorMessage(error, "Failed to update mobile sheet mode"));
+    }
+  };
+  const saveAppNotificationSettings = async (value: AppNotificationSettings) => {
+    await updateSettingMutation.mutateAsync({
+      key: APP_NOTIFICATION_SETTINGS_KEY,
+      value,
+    });
+    await appNotificationSettingsQuery.refetch();
+  };
+  const handleToggleAppNotificationSetting = async (
+    key: keyof AppNotificationSettings,
+    enabled: boolean
+  ) => {
+    try {
+      await saveAppNotificationSettings({
+        ...appNotificationSettings,
+        [key]: enabled,
+      });
+      toast.success("Notification settings saved");
+    } catch (error) {
+      toast.error(getTrpcErrorMessage(error, "Failed to update notification settings"));
     }
   };
 
@@ -218,6 +272,43 @@ export default function AdminSettings() {
               <SelectItem value="legacy-win7">Windows 7</SelectItem>
             </SelectContent>
           </Select>
+        </CardContent>
+      </Card>
+      <Card className="max-w-3xl mb-6">
+        <CardHeader>
+          <CardTitle>Notifications</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">MSSQL owner notification</div>
+              <div className="text-sm text-muted-foreground">Notify the owner when MSSQL sync adds new patients.</div>
+            </div>
+            <Switch
+              checked={appNotificationSettings.mssqlOwnerEnabled}
+              onCheckedChange={(checked) => void handleToggleAppNotificationSetting("mssqlOwnerEnabled", checked)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">MSSQL in-app notification</div>
+              <div className="text-sm text-muted-foreground">Show in-app notifications when MSSQL sync adds new patients.</div>
+            </div>
+            <Switch
+              checked={appNotificationSettings.mssqlInAppEnabled}
+              onCheckedChange={(checked) => void handleToggleAppNotificationSetting("mssqlInAppEnabled", checked)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">Manual patient in-app notification</div>
+              <div className="text-sm text-muted-foreground">Show in-app notifications when staff create patients manually.</div>
+            </div>
+            <Switch
+              checked={appNotificationSettings.manualPatientInAppEnabled}
+              onCheckedChange={(checked) => void handleToggleAppNotificationSetting("manualPatientInAppEnabled", checked)}
+            />
+          </div>
         </CardContent>
       </Card>
       <Card className="max-w-3xl mb-6">

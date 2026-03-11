@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, doctorProcedure, nurseProcedure, technicianProcedure, receptionProcedure, managerProcedure, adminProcedure } from "../_core/procedures";
 import { authService } from "../_core/auth";
-import { pushAppNotification } from "../_core/appNotifications";
+import { getAppNotificationSettings, pushAppNotification } from "../_core/appNotifications";
 import * as db from "../db";
 import { broadcastSheetUpdate } from "../_core/ws";
 import { getBuildInfo } from "../_core/buildInfo";
@@ -1420,21 +1420,28 @@ export const medicalRouter = router({
         await db.logAuditEvent(ctx.user.id, "CREATE_PATIENT", "patient", created?.id ?? 0, {
           message: `Created patient: ${input.fullName}`,
         });
-        await pushAppNotification({
-          title: "تمت إضافة مريض جديد",
-          message: `${input.fullName} (${code})`,
-          kind: "success",
-          source: "manual_patient_create",
-          entityType: "patient",
-          entityId: Number(created?.id ?? 0) || null,
-          meta: {
-            patientCode: code,
-            fullName: input.fullName,
-            createdBy: String((ctx.user as any)?.name ?? (ctx.user as any)?.username ?? "").trim() || null,
-          },
-        }).catch((error) => {
-          console.warn("[patient-create] Failed to append app notification:", error);
-        });
+        const notificationSettings = await getAppNotificationSettings().catch(() => ({
+          mssqlOwnerEnabled: true,
+          mssqlInAppEnabled: true,
+          manualPatientInAppEnabled: true,
+        }));
+        if (notificationSettings.manualPatientInAppEnabled) {
+          await pushAppNotification({
+            title: "تمت إضافة مريض جديد",
+            message: `${input.fullName} (${code})`,
+            kind: "success",
+            source: "manual_patient_create",
+            entityType: "patient",
+            entityId: Number(created?.id ?? 0) || null,
+            meta: {
+              patientCode: code,
+              fullName: input.fullName,
+              createdBy: String((ctx.user as any)?.name ?? (ctx.user as any)?.username ?? "").trim() || null,
+            },
+          }).catch((error) => {
+            console.warn("[patient-create] Failed to append app notification:", error);
+          });
+        }
 
         return { success: true, patientId: created?.id ?? 0, patientCode: code, receiptNo: pushResult?.trNo ?? null };
       } catch (error) {
@@ -1770,21 +1777,28 @@ export const medicalRouter = router({
         await db.logAuditEvent(ctx.user.id, "CREATE_PATIENT", "patient", created?.id ?? 0, {
           message: `Created patient: ${input.fullName}`,
         });
-        await pushAppNotification({
-          title: "تمت إضافة مريض جديد",
-          message: `${input.fullName} (${code})`,
-          kind: "success",
-          source: "examination_patient_create",
-          entityType: "patient",
-          entityId: Number(created?.id ?? 0) || null,
-          meta: {
-            patientCode: code,
-            fullName: input.fullName,
-            createdBy: String((ctx.user as any)?.name ?? (ctx.user as any)?.username ?? "").trim() || null,
-          },
-        }).catch((error) => {
-          console.warn("[patient-create] Failed to append app notification:", error);
-        });
+        const notificationSettings = await getAppNotificationSettings().catch(() => ({
+          mssqlOwnerEnabled: true,
+          mssqlInAppEnabled: true,
+          manualPatientInAppEnabled: true,
+        }));
+        if (notificationSettings.manualPatientInAppEnabled) {
+          await pushAppNotification({
+            title: "تمت إضافة مريض جديد",
+            message: `${input.fullName} (${code})`,
+            kind: "success",
+            source: "examination_patient_create",
+            entityType: "patient",
+            entityId: Number(created?.id ?? 0) || null,
+            meta: {
+              patientCode: code,
+              fullName: input.fullName,
+              createdBy: String((ctx.user as any)?.name ?? (ctx.user as any)?.username ?? "").trim() || null,
+            },
+          }).catch((error) => {
+            console.warn("[patient-create] Failed to append app notification:", error);
+          });
+        }
 
         return { id: created?.id ?? 0, patientCode: code, fullName: input.fullName, receiptNo: pushResult?.trNo ?? null };
       } catch (error) {
