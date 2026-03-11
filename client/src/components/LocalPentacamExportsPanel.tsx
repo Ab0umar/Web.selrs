@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { getTrpcErrorMessage } from "@/lib/utils";
+import { downloadImageAsPdf } from "@/lib/pdf";
 
 type LocalExportItem = {
   name: string;
@@ -90,6 +91,7 @@ export default function LocalPentacamExportsPanel({ patientId }: LocalPentacamEx
   const [mismatchedLinks, setMismatchedLinks] = useState<MismatchedLinkItem[]>([]);
   const [mismatchLoading, setMismatchLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [downloadingPdfFor, setDownloadingPdfFor] = useState("");
   const targetPatientId = Number(patientId ?? 0);
   const utils = trpc.useUtils();
   const importMutation = trpc.medical.importLocalPentacamExports.useMutation();
@@ -621,6 +623,27 @@ export default function LocalPentacamExportsPanel({ patientId }: LocalPentacamEx
                 <div className="text-xs break-all">{item.name}</div>
                 <div className="text-[11px] text-muted-foreground">{formatDate(item.mtime)}</div>
                 <div className="text-[11px] text-muted-foreground">{formatSize(item.size)}</div>
+                <div className="pt-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={downloadingPdfFor === item.name}
+                    onClick={async () => {
+                      try {
+                        setDownloadingPdfFor(item.name);
+                        await downloadImageAsPdf(item.url, item.name);
+                        toast.success("PDF downloaded.");
+                      } catch (error: unknown) {
+                        toast.error(getTrpcErrorMessage(error, "Failed to download PDF."));
+                      } finally {
+                        setDownloadingPdfFor("");
+                      }
+                    }}
+                  >
+                    {downloadingPdfFor === item.name ? "Preparing PDF..." : "Download PDF"}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>

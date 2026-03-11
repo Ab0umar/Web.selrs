@@ -1,13 +1,16 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
+import GlobalCommandPalette from "./components/GlobalCommandPalette";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { applyMobileQaState, getMobileQaEnabled, markOverflowInSheets, startMobileQaWatcher } from "@/lib/mobileQa";
-import { ArrowRight, Layers, Moon, Printer, Save, Sun } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/hooks/useAuth";
+import { ArrowRight, Layers, Monitor, Moon, Printer, Save, Sun } from "lucide-react";
 import { toast } from "sonner";
 
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -37,6 +40,7 @@ const AdminMigrations = lazy(() => import("./pages/AdminMigrations"));
 const AdminApiTools = lazy(() => import("./pages/AdminApiTools"));
 const AdminStatus = lazy(() => import("./pages/AdminStatus"));
 const AdminSettings = lazy(() => import("./pages/AdminSettings"));
+const AdminPentacamFailed = lazy(() => import("./pages/AdminPentacamFailed"));
 const AdminPermissions = lazy(() => import("./pages/AdminPermissions"));
 const AdminSheets = lazy(() => import("./pages/AdminSheets"));
 const AdminSheetDesigner = lazy(() => import("./pages/AdminSheetDesigner"));
@@ -44,6 +48,15 @@ const AdminDoctors = lazy(() => import("./pages/AdminDoctors"));
 const SheetCopies = lazy(() => import("./pages/AdminSheetCopies"));
 const ForcePasswordChange = lazy(() => import("./pages/ForcePasswordChange"));
 const Profile = lazy(() => import("./pages/Profile"));
+const APP_NOTIFICATION_FEED_KEY = "app_notifications_feed_v1";
+
+type AppNotificationItem = {
+  id: string;
+  title: string;
+  message: string;
+  createdAt: string;
+  kind?: "info" | "success" | "warning" | "error";
+};
 
 function LegacySurgerySheetRedirect() {
   useEffect(() => {
@@ -93,6 +106,7 @@ function Router() {
       <Route path={"/admin/api-tools"} component={() => <ProtectedRoute requiredRoles={["admin"]}><AdminApiTools /></ProtectedRoute>} />
       <Route path={"/admin/status"} component={() => <ProtectedRoute requiredRoles={["admin"]}><AdminStatus /></ProtectedRoute>} />
       <Route path={"/admin/settings"} component={() => <ProtectedRoute requiredRoles={["admin"]}><AdminSettings /></ProtectedRoute>} />
+      <Route path={"/admin/pentacam-failed"} component={() => <ProtectedRoute requiredRoles={["admin"]}><AdminPentacamFailed /></ProtectedRoute>} />
       <Route path={"/admin/permissions"} component={() => <ProtectedRoute requiredRoles={["admin"]}><AdminPermissions /></ProtectedRoute>} />
       <Route path={"/admin/sheets"} component={() => <ProtectedRoute requiredRoles={["admin"]}><AdminSheets /></ProtectedRoute>} />
       <Route path={"/admin/sheet-designer"} component={() => <ProtectedRoute requiredRoles={["admin"]}><AdminSheetDesigner /></ProtectedRoute>} />
@@ -114,12 +128,106 @@ function ThemeToggle() {
       size="icon"
       onClick={toggleTheme}
       className="fixed bottom-3 left-3 z-[1000] rounded-full bg-background/90 backdrop-blur"
-      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-      title={theme === "dark" ? "Light mode" : "Dark mode"}
+      aria-label={
+        theme === "light"
+          ? "Switch to dark mode"
+          : theme === "dark"
+            ? "Switch to Windows 7 mode"
+            : "Switch to light mode"
+      }
+      title={
+        theme === "light"
+          ? "Dark mode"
+          : theme === "dark"
+            ? "Windows 7 mode"
+            : "Light mode"
+      }
     >
-      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      {theme === "light" ? (
+        <Moon className="h-4 w-4" />
+      ) : theme === "dark" ? (
+        <Monitor className="h-4 w-4" />
+      ) : (
+        <Sun className="h-4 w-4" />
+      )}
     </Button>
   );
+}
+
+function AppNotificationsBridge() {
+  const { user, isAuthenticated } = useAuth();
+  const initializedRef = useRef(false);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const storageKey = `selrs_seen_app_notifications_${String(user?.id ?? "guest")}`;
+  const notificationsQuery = trpc.medical.getSystemSetting.useQuery(
+    { key: APP_NOTIFICATION_FEED_KEY },
+    {
+      enabled: isAuthenticated,
+      refetchInterval: 15000,
+      refetchOnWindowFocus: true,
+      staleTime: 5000,
+    }
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      const ids = Array.isArray(parsed) ? parsed.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
+      seenIdsRef.current = new Set(ids);
+    } catch {
+      seenIdsRef.current = new Set();
+    }
+    initializedRef.current = false;
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const itemsRaw = (notificationsQuery.data as any)?.value;
+    const items = Array.isArray(itemsRaw) ? (itemsRaw as AppNotificationItem[]) : [];
+    if (items.length === 0) return;
+
+    if (!initializedRef.current) {
+      for (const item of items) {
+        const id = String(item?.id ?? "").trim();
+        if (id) seenIdsRef.current.add(id);
+      }
+      initializedRef.current = true;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(storageKey, JSON.stringify(Array.from(seenIdsRef.current).slice(-200)));
+      }
+      return;
+    }
+
+    const unseen = [...items]
+      .reverse()
+      .filter((item) => {
+        const id = String(item?.id ?? "").trim();
+        return id && !seenIdsRef.current.has(id);
+      });
+
+    if (unseen.length === 0) return;
+
+    for (const item of unseen) {
+      const id = String(item.id ?? "").trim();
+      if (!id) continue;
+      const title = String(item.title ?? "").trim() || "Notification";
+      const message = String(item.message ?? "").trim();
+      const tone = item.kind ?? "info";
+      seenIdsRef.current.add(id);
+      if (tone === "success") toast.success(title, { description: message });
+      else if (tone === "warning") toast.warning(title, { description: message });
+      else if (tone === "error") toast.error(title, { description: message });
+      else toast(title, { description: message });
+    }
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(storageKey, JSON.stringify(Array.from(seenIdsRef.current).slice(-200)));
+    }
+  }, [isAuthenticated, notificationsQuery.data, storageKey]);
+
+  return null;
 }
 
 // NOTE: About Theme
@@ -367,12 +475,14 @@ function App() {
         switchable
       >
         <TooltipProvider>
+          <AppNotificationsBridge />
           <Toaster />
           <div className="page-layout">
             <Suspense fallback={<div className="p-6 text-center text-muted-foreground">Loading...</div>}>
               <Router />
             </Suspense>
           </div>
+          <GlobalCommandPalette />
           <ThemeToggle />
           {showSheetBar && (
             <div className="sheet-unified-actions print:hidden" role="group" aria-label="Sheet actions">

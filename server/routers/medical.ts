@@ -1,9 +1,12 @@
 import { z } from "zod";
-import { stat } from "node:fs/promises";
+import { access, readFile, readdir, rename, stat } from "node:fs/promises";
+import { execFile as execFileCb } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, doctorProcedure, nurseProcedure, technicianProcedure, receptionProcedure, managerProcedure, adminProcedure } from "../_core/procedures";
 import { authService } from "../_core/auth";
+import { pushAppNotification } from "../_core/appNotifications";
 import * as db from "../db";
 import { broadcastSheetUpdate } from "../_core/ws";
 import { getBuildInfo } from "../_core/buildInfo";
@@ -166,6 +169,56 @@ const decodeMojibake = (value: unknown) => {
   } catch {
     return raw;
   }
+};
+
+const PENTACAM_ROOT_DIR = path.resolve(process.cwd(), "Pentacam");
+const PENTACAM_FAILED_DIR = path.join(PENTACAM_ROOT_DIR, "_failed");
+const PENTACAM_WATCHER_AUDIT_PATH = path.join(PENTACAM_ROOT_DIR, "_incoming_watcher_audit.jsonl");
+const execFile = promisify(execFileCb);
+
+type PentacamFailedAuditPass = {
+  pass?: string;
+  text?: string;
+  candidates?: string[];
+};
+
+type PentacamFailedAuditRecord = {
+  status?: string;
+  original_name?: string;
+  final_name?: string;
+  detected_id?: string | null;
+  score?: number;
+  top_passes?: PentacamFailedAuditPass[];
+  timestamp?: string;
+};
+
+type PentacamFailedSuggestion = {
+  patientId: number;
+  patientCode: string;
+  fullName: string;
+  matchedBy: string;
+  score: number;
+};
+
+type GlobalSearchPatientResult = {
+  id: number;
+  patientCode: string;
+  fullName: string;
+  phone?: string | null;
+  treatingDoctor?: string | null;
+};
+
+type GlobalSearchDocumentResult = {
+  id: number;
+  type: "pentacam";
+  title: string;
+  fileName: string;
+  patientId: number;
+  patientCode: string;
+  patientName: string;
+  capturedAt: string | null;
+  openUrl: string;
+  route: string;
 };
 
 function inferPentacamEyeSideFromName(fileName: string): "OD" | "OS" | "" {
@@ -686,6 +739,286 @@ function stripLeadingCodeLabel(fileName: string): string {
   return raw.replace(/^([A-Za-z]{1,5}\d{3,12}|\d{3,12})[_\-\s]+/i, "");
 }
 
+async function runGlobalSearch(query: string, limit: number): Promise<{
+  patients: GlobalSearchPatientResult[];
+  documents: GlobalSearchDocumentResult[];
+}> {
+  const normalized = String(query ?? "").trim();
+  if (!normalized) return { patients: [], documents: [] };
+
+  const patientRows = await db.searchPatients(normalized);
+  const patients = (Array.isArray(patientRows) ? patientRows : [])
+    .slice(0, limit)
+    .map((row: any) => ({
+      id: Number(row?.id ?? 0),
+      patientCode: String(row?.patientCode ?? "").trim(),
+      fullName: String(row?.fullName ?? "").trim(),
+      phone: String(row?.phone ?? "").trim() || null,
+      treatingDoctor: String(row?.treatingDoctor ?? "").trim() || null,
+    }))
+    .filter((row) => row.id > 0 && row.fullName);
+
+  const matchedPatientIds = new Set(patients.map((row) => row.id));
+  const matchedPatientCodes = new Set(
+    patients
+      .map((row) => row.patientCode)
+      .filter(Boolean)
+      .map((value) => value.toLowerCase())
+  );
+
+  const recentDocs = await db.getRecentPentacamLocalResults(3000);
+  const patientCache = new Map<number, any>();
+  for (const patient of patients) patientCache.set(patient.id, patient);
+  const needle = normalized.toLowerCase();
+  const documents: GlobalSearchDocumentResult[] = [];
+
+  for (const row of Array.isArray(recentDocs) ? recentDocs : []) {
+    const meta = parsePentacamLocalMeta((row as any)?.notes);
+    const fileName = String(meta?.originalFileName ?? meta?.sourceFileName ?? "").trim();
+    if (!fileName) continue;
+
+    const patientId = Number((row as any)?.patientId ?? 0);
+    let patient = patientCache.get(patientId);
+    if (!patient && patientId > 0) {
+      patient = await db.getPatientById(patientId).catch(() => null);
+      if (patient) patientCache.set(patientId, patient);
+    }
+
+    const patientCode = String((patient as any)?.patientCode ?? "").trim();
+    const patientName = String((patient as any)?.fullName ?? "").trim();
+    const haystack = [
+      fileName,
+      patientCode,
+      patientName,
+      String(meta?.capturedAt ?? ""),
+      String(meta?.eyeSide ?? ""),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    const matches =
+      haystack.includes(needle) ||
+      matchedPatientIds.has(patientId) ||
+      (patientCode ? matchedPatientCodes.has(patientCode.toLowerCase()) : false);
+    if (!matches) continue;
+
+    documents.push({
+      id: Number((row as any)?.id ?? 0),
+      type: "pentacam",
+      title: stripLeadingCodeLabel(fileName),
+      fileName,
+      patientId,
+      patientCode,
+      patientName,
+      capturedAt: String(meta?.capturedAt ?? "").trim() || null,
+      openUrl: String(meta?.storageUrl ?? "").trim() || `/pentacam-exports/${encodeURIComponent(fileName)}`,
+      route: patientId > 0 ? `/patients/${patientId}` : "/sheets/pentacam",
+    });
+    if (documents.length >= limit) break;
+  }
+
+  return { patients, documents };
+}
+
+function buildFailedPentacamGroupKey(fileName: string): string {
+  const stem = path.parse(stripLeadingCodeLabel(fileName)).name;
+  const compact = stem
+    .replace(/_(enhanced\s*ectasia|topometric|4\s*maps?\s*refr(?:active)?|4\s*maps?|kc[-\s]*staging)$/i, "")
+    .replace(/_(OD|OS|OU)(?:_\d+)?$/i, "")
+    .replace(/_\d{8}_\d{6}(?:_\d+)?$/i, "")
+    .replace(/[_\s]+/g, " ")
+    .trim();
+  return compact.toLowerCase();
+}
+
+function buildFailedPentacamGroupLabel(fileName: string): string {
+  const stem = path.parse(stripLeadingCodeLabel(fileName)).name;
+  return stem
+    .replace(/_(enhanced\s*ectasia|topometric|4\s*maps?\s*refr(?:active)?|4\s*maps?|kc[-\s]*staging)$/i, "")
+    .replace(/_(OD|OS|OU)(?:_\d+)?$/i, "")
+    .replace(/_\d{8}_\d{6}(?:_\d+)?$/i, "")
+    .replace(/[_\s]+/g, " ")
+    .trim();
+}
+
+function extractPentacamPageType(fileName: string): string {
+  const lower = String(fileName ?? "").toLowerCase();
+  if (lower.includes("enhanced") && lower.includes("ectasia")) return "Enhanced Ectasia";
+  if (lower.includes("topometric")) return "Topometric";
+  if (lower.includes("4 maps") && lower.includes("refr")) return "4 Maps Refr";
+  if (lower.includes("4 maps")) return "4 Maps";
+  if (lower.includes("kc") && lower.includes("staging")) return "KC Staging";
+  return "Other";
+}
+
+function normalizeManualPentacamId(input: string): string {
+  const digits = String(input ?? "").replace(/\D+/g, "");
+  if (!digits) return "";
+  if (digits.length >= 6 && digits.startsWith("26")) return digits.slice(-4);
+  if (digits.length > 4) return digits.slice(-4);
+  return digits.padStart(4, "0");
+}
+
+function assertSafePentacamFileName(fileName: string): string {
+  const raw = String(fileName ?? "").trim();
+  if (!raw) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "File name is required" });
+  }
+  if (raw.includes("/") || raw.includes("\\") || raw.includes("..")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid file name" });
+  }
+  return raw;
+}
+
+function stripLeadingNumericPrefix(fileName: string): string {
+  return String(fileName ?? "").replace(/^\d{4,8}_+/, "");
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function nextAvailablePentacamPath(targetPath: string): Promise<string> {
+  if (!(await pathExists(targetPath))) return targetPath;
+  const parsed = path.parse(targetPath);
+  let index = 1;
+  let candidate = targetPath;
+  while (await pathExists(candidate)) {
+    candidate = path.join(parsed.dir, `${parsed.name}_dup${index}${parsed.ext}`);
+    index += 1;
+  }
+  return candidate;
+}
+
+async function loadPentacamFailedAuditMap(limit: number = 4000): Promise<Map<string, PentacamFailedAuditRecord>> {
+  const out = new Map<string, PentacamFailedAuditRecord>();
+  try {
+    const raw = await readFile(PENTACAM_WATCHER_AUDIT_PATH, "utf8");
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    const tail = lines.slice(-limit);
+    for (const line of tail) {
+      try {
+        const record = JSON.parse(line) as PentacamFailedAuditRecord;
+        const original = String(record.original_name ?? "").trim();
+        const finalName = String(record.final_name ?? "").trim();
+        if (finalName) out.set(finalName, record);
+        if (original && !out.has(original)) out.set(original, record);
+      } catch {
+        // Ignore malformed lines in the audit log.
+      }
+    }
+  } catch {
+    // Audit log is optional.
+  }
+  return out;
+}
+
+async function moveFailedPentacamFileToRoot(
+  fileName: string,
+  mode: { type: "review"; idCode: string } | { type: "release" }
+): Promise<{ sourceFileName: string; finalFileName: string }> {
+  const safeFileName = assertSafePentacamFileName(fileName);
+  const sourcePath = path.join(PENTACAM_FAILED_DIR, safeFileName);
+  const sourceInfo = await stat(sourcePath).catch(() => null);
+  if (!sourceInfo?.isFile()) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `Failed file not found: ${safeFileName}` });
+  }
+
+  const targetBaseName =
+    mode.type === "review"
+      ? `${normalizeManualPentacamId(mode.idCode)}_${stripLeadingNumericPrefix(safeFileName)}`
+      : safeFileName;
+  const targetPath = await nextAvailablePentacamPath(path.join(PENTACAM_ROOT_DIR, targetBaseName));
+  await rename(sourcePath, targetPath);
+  return {
+    sourceFileName: safeFileName,
+    finalFileName: path.basename(targetPath),
+  };
+}
+
+async function previewFailedPentacamRenameTargets(
+  fileNames: string[],
+  idCode: string
+): Promise<Array<{ fileName: string; proposedFileName: string; willDuplicate: boolean }>> {
+  const normalizedId = normalizeManualPentacamId(idCode);
+  if (!normalizedId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "A valid ID is required" });
+  }
+
+  const seenTargets = new Set<string>();
+  const results: Array<{ fileName: string; proposedFileName: string; willDuplicate: boolean }> = [];
+  for (const rawFileName of fileNames) {
+    const fileName = assertSafePentacamFileName(rawFileName);
+    const baseName = stripLeadingNumericPrefix(fileName);
+    const initialTarget = path.join(PENTACAM_ROOT_DIR, `${normalizedId}_${baseName}`);
+    let candidate = initialTarget;
+    let duplicate = false;
+    if ((await pathExists(candidate)) || seenTargets.has(candidate.toLowerCase())) {
+      duplicate = true;
+      candidate = await nextAvailablePentacamPath(candidate);
+    }
+    seenTargets.add(candidate.toLowerCase());
+    results.push({
+      fileName,
+      proposedFileName: path.basename(candidate),
+      willDuplicate: duplicate,
+    });
+  }
+  return results;
+}
+
+async function runPentacamFailedRetryOcr(fileName: string): Promise<{
+  detectedId: string;
+  score: number;
+  topPasses: PentacamFailedAuditPass[];
+}> {
+  const safeFileName = assertSafePentacamFileName(fileName);
+  const fullPath = path.join(PENTACAM_FAILED_DIR, safeFileName);
+  const info = await stat(fullPath).catch(() => null);
+  if (!info?.isFile()) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Failed file not found" });
+  }
+
+  const candidates: Array<{ command: string; args: string[] }> = [
+    { command: "C:\\Python311\\python.exe", args: [path.join(PENTACAM_ROOT_DIR, "incoming_auto_rename.py"), "--detect", fullPath] },
+    { command: "py", args: ["-3.11", path.join(PENTACAM_ROOT_DIR, "incoming_auto_rename.py"), "--detect", fullPath] },
+    { command: "python", args: [path.join(PENTACAM_ROOT_DIR, "incoming_auto_rename.py"), "--detect", fullPath] },
+  ];
+
+  let lastError = "";
+  for (const candidate of candidates) {
+    try {
+      const { stdout } = await execFile(candidate.command, candidate.args, {
+        windowsHide: true,
+        timeout: 120000,
+        cwd: PENTACAM_ROOT_DIR,
+      });
+      const parsed = JSON.parse(String(stdout ?? "").trim() || "{}");
+      if (!parsed || parsed.ok !== true) {
+        lastError = String(parsed?.error ?? "OCR retry failed");
+        continue;
+      }
+      return {
+        detectedId: String(parsed.detected_id ?? "").trim(),
+        score: Number(parsed.score ?? 0),
+        topPasses: Array.isArray(parsed.traces) ? parsed.traces.slice(0, 4) : [],
+      };
+    } catch (error: any) {
+      lastError = String(error?.message ?? error ?? "OCR retry failed");
+    }
+  }
+
+  throw new TRPCError({
+    code: "INTERNAL_SERVER_ERROR",
+    message: lastError || "Failed to retry OCR",
+  });
+}
+
 type LocalPentacamMismatchEntry = {
   resultId: number;
   fileName: string;
@@ -1087,6 +1420,21 @@ export const medicalRouter = router({
         await db.logAuditEvent(ctx.user.id, "CREATE_PATIENT", "patient", created?.id ?? 0, {
           message: `Created patient: ${input.fullName}`,
         });
+        await pushAppNotification({
+          title: "تمت إضافة مريض جديد",
+          message: `${input.fullName} (${code})`,
+          kind: "success",
+          source: "manual_patient_create",
+          entityType: "patient",
+          entityId: Number(created?.id ?? 0) || null,
+          meta: {
+            patientCode: code,
+            fullName: input.fullName,
+            createdBy: String((ctx.user as any)?.name ?? (ctx.user as any)?.username ?? "").trim() || null,
+          },
+        }).catch((error) => {
+          console.warn("[patient-create] Failed to append app notification:", error);
+        });
 
         return { success: true, patientId: created?.id ?? 0, patientCode: code, receiptNo: pushResult?.trNo ?? null };
       } catch (error) {
@@ -1422,6 +1770,21 @@ export const medicalRouter = router({
         await db.logAuditEvent(ctx.user.id, "CREATE_PATIENT", "patient", created?.id ?? 0, {
           message: `Created patient: ${input.fullName}`,
         });
+        await pushAppNotification({
+          title: "تمت إضافة مريض جديد",
+          message: `${input.fullName} (${code})`,
+          kind: "success",
+          source: "examination_patient_create",
+          entityType: "patient",
+          entityId: Number(created?.id ?? 0) || null,
+          meta: {
+            patientCode: code,
+            fullName: input.fullName,
+            createdBy: String((ctx.user as any)?.name ?? (ctx.user as any)?.username ?? "").trim() || null,
+          },
+        }).catch((error) => {
+          console.warn("[patient-create] Failed to append app notification:", error);
+        });
 
         return { id: created?.id ?? 0, patientCode: code, fullName: input.fullName, receiptNo: pushResult?.trNo ?? null };
       } catch (error) {
@@ -1452,6 +1815,18 @@ export const medicalRouter = router({
     )
     .query(async ({ input }) => {
       return await db.searchPatients(input.searchTerm, input.sheetType);
+    }),
+
+  globalSearch: protectedProcedure
+    .input(
+      z.object({
+        query: z.string().min(1),
+        limit: z.number().int().min(1).max(20).optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const limit = Number(input.limit ?? 8);
+      return await runGlobalSearch(input.query, limit);
     }),
 
   // Get all patients
@@ -2075,6 +2450,184 @@ export const medicalRouter = router({
       return {
         success: true,
         deleted,
+      };
+    }),
+
+  listFailedPentacamFiles: adminProcedure
+    .query(async () => {
+      const auditByName = await loadPentacamFailedAuditMap();
+      const matcher = await buildPentacamPatientCandidates();
+      let entries: Array<{ isFile: () => boolean; name: string | Buffer }> = [];
+      try {
+        entries = await readdir(PENTACAM_FAILED_DIR, { withFileTypes: true, encoding: "utf8" });
+      } catch {
+        return [];
+      }
+
+      const rows = await Promise.all(
+        entries
+          .filter((entry) => entry.isFile())
+          .map(async (entry) => {
+            const fileName = String(entry.name ?? "").trim();
+            if (!fileName) return null;
+            const fullPath = path.join(PENTACAM_FAILED_DIR, fileName);
+            const info = await stat(fullPath).catch(() => null);
+            if (!info?.isFile()) return null;
+            const audit = auditByName.get(fileName) ?? null;
+            const suggestions = suggestPatientsForPentacamFileName(fileName, matcher, 3).map((entry) => ({
+              patientId: Number((entry.patient as any)?.id ?? 0),
+              patientCode: String((entry.patient as any)?.patientCode ?? "").trim(),
+              fullName: String((entry.patient as any)?.fullName ?? "").trim(),
+              matchedBy: entry.matchedBy,
+              score: Number(entry.score ?? 0),
+            })) satisfies PentacamFailedSuggestion[];
+            return {
+              fileName,
+              groupKey: buildFailedPentacamGroupKey(fileName),
+              groupLabel: buildFailedPentacamGroupLabel(fileName),
+              pageType: extractPentacamPageType(fileName),
+              size: Number(info.size ?? 0),
+              modifiedAt: new Date(info.mtimeMs || Date.now()).toISOString(),
+              previewUrl: `/pentacam-failed/${encodeURIComponent(fileName)}`,
+              detectedId: String(audit?.detected_id ?? "").trim(),
+              score: Number(audit?.score ?? 0),
+              status: String(audit?.status ?? "failed"),
+              topPasses: Array.isArray(audit?.top_passes) ? audit!.top_passes!.slice(0, 4) : [],
+              suggestions,
+            };
+          })
+      );
+
+      return rows
+        .filter((row): row is NonNullable<typeof row> => Boolean(row))
+        .sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt)));
+    }),
+
+  previewFailedPentacamRename: adminProcedure
+    .input(
+      z.object({
+        fileNames: z.array(z.string().min(1)).min(1).max(30),
+        idCode: z.string().min(1),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const previews = await previewFailedPentacamRenameTargets(input.fileNames, input.idCode);
+      return {
+        success: true,
+        count: previews.length,
+        files: previews,
+        duplicateCount: previews.filter((row) => row.willDuplicate).length,
+      };
+    }),
+
+  reviewFailedPentacamFile: adminProcedure
+    .input(
+      z.object({
+        fileName: z.string().min(1),
+        idCode: z.string().min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const normalizedId = normalizeManualPentacamId(input.idCode);
+      if (!normalizedId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A valid ID is required" });
+      }
+
+      const moved = await moveFailedPentacamFileToRoot(input.fileName, { type: "review", idCode: normalizedId });
+
+      await db.logAuditEvent(ctx.user.id, "REVIEW_FAILED_PENTACAM_FILE", "pentacamResult", 0, {
+        sourceFileName: moved.sourceFileName,
+        finalFileName: moved.finalFileName,
+        idCode: normalizedId,
+      });
+
+      return {
+        success: true,
+        fileName: moved.sourceFileName,
+        finalFileName: moved.finalFileName,
+        previewUrl: `/pentacam-exports/${encodeURIComponent(moved.finalFileName)}`,
+      };
+    }),
+
+  retryFailedPentacamOcr: adminProcedure
+    .input(
+      z.object({
+        fileName: z.string().min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const retried = await runPentacamFailedRetryOcr(input.fileName);
+      await db.logAuditEvent(ctx.user.id, "RETRY_FAILED_PENTACAM_OCR", "pentacamResult", 0, {
+        fileName: input.fileName,
+        detectedId: retried.detectedId,
+        score: retried.score,
+      });
+      return {
+        success: true,
+        fileName: input.fileName,
+        detectedId: retried.detectedId,
+        score: retried.score,
+        topPasses: retried.topPasses,
+      };
+    }),
+
+  reviewFailedPentacamGroup: adminProcedure
+    .input(
+      z.object({
+        fileNames: z.array(z.string().min(1)).min(1).max(30),
+        idCode: z.string().min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const normalizedId = normalizeManualPentacamId(input.idCode);
+      if (!normalizedId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A valid ID is required" });
+      }
+
+      const uniqueNames = Array.from(new Set(input.fileNames.map(assertSafePentacamFileName)));
+      const results: Array<{ sourceFileName: string; finalFileName: string }> = [];
+      for (const fileName of uniqueNames) {
+        results.push(await moveFailedPentacamFileToRoot(fileName, { type: "review", idCode: normalizedId }));
+      }
+
+      await db.logAuditEvent(ctx.user.id, "REVIEW_FAILED_PENTACAM_GROUP", "pentacamResult", 0, {
+        fileCount: results.length,
+        idCode: normalizedId,
+        sourceFileNames: results.map((row) => row.sourceFileName),
+        finalFileNames: results.map((row) => row.finalFileName),
+      });
+
+      return {
+        success: true,
+        count: results.length,
+        idCode: normalizedId,
+        files: results.map((row) => ({
+          fileName: row.sourceFileName,
+          finalFileName: row.finalFileName,
+          previewUrl: `/pentacam-exports/${encodeURIComponent(row.finalFileName)}`,
+        })),
+      };
+    }),
+
+  releaseFailedPentacamFile: adminProcedure
+    .input(
+      z.object({
+        fileName: z.string().min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const moved = await moveFailedPentacamFileToRoot(input.fileName, { type: "release" });
+
+      await db.logAuditEvent(ctx.user.id, "RELEASE_FAILED_PENTACAM_FILE", "pentacamResult", 0, {
+        sourceFileName: moved.sourceFileName,
+        finalFileName: moved.finalFileName,
+      });
+
+      return {
+        success: true,
+        fileName: moved.sourceFileName,
+        finalFileName: moved.finalFileName,
+        previewUrl: `/pentacam-exports/${encodeURIComponent(moved.finalFileName)}`,
       };
     }),
 

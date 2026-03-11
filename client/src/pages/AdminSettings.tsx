@@ -1,17 +1,20 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { getTrpcErrorMessage } from "@/lib/utils";
 import AdminStatus from "./AdminStatus";
 import AdminApiTools from "./AdminApiTools";
 import AdminMigrations from "./AdminMigrations";
+import AdminPentacamFailed from "./AdminPentacamFailed";
 import { DEFAULT_APPOINTMENTS_PRICING } from "./Appointments";
 
 const KEY = "selrs_preferred_url";
@@ -26,6 +29,7 @@ const toSafeNumber = (value: unknown) => {
 
 export default function AdminSettings() {
   const { user, isAuthenticated } = useAuth();
+  const { theme, setTheme, switchable } = useTheme();
   const [, setLocation] = useLocation();
   const [preferredUrl, setPreferredUrl] = useState("");
   const [pricingJson, setPricingJson] = useState("");
@@ -166,10 +170,11 @@ export default function AdminSettings() {
         </Button>
       </div>
       <Tabs defaultValue="settings" className="w-full">
-        <TabsList className="mb-6 grid w-full grid-cols-4">
+        <TabsList className="mb-6 grid w-full grid-cols-5">
           <TabsTrigger value="settings">Settings</TabsTrigger>
           <TabsTrigger value="status">System Status</TabsTrigger>
           <TabsTrigger value="api">API Tools</TabsTrigger>
+          <TabsTrigger value="pentacam-failed">Pentacam Failed</TabsTrigger>
           <TabsTrigger value="migrations">Migrations</TabsTrigger>
         </TabsList>
 
@@ -189,6 +194,30 @@ export default function AdminSettings() {
           <Button onClick={handleSave} className="bg-primary">
             Save
           </Button>
+        </CardContent>
+      </Card>
+      <Card className="max-w-3xl mb-6">
+        <CardHeader>
+          <CardTitle>Theme</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-sm text-muted-foreground">
+            Choose the active UI theme for this browser.
+          </div>
+          <Select
+            value={theme}
+            onValueChange={(value) => setTheme?.(value as "light" | "dark" | "legacy-win7")}
+            disabled={!switchable}
+          >
+            <SelectTrigger className="max-w-xs">
+              <SelectValue placeholder="Select theme" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="light">Light</SelectItem>
+              <SelectItem value="dark">Dark</SelectItem>
+              <SelectItem value="legacy-win7">Windows 7</SelectItem>
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
       <Card className="max-w-3xl mb-6">
@@ -291,6 +320,10 @@ export default function AdminSettings() {
 
       <TabsContent value="api">
         <AdminApiTools />
+      </TabsContent>
+
+      <TabsContent value="pentacam-failed">
+        <AdminPentacamFailed />
       </TabsContent>
 
       <TabsContent value="migrations">

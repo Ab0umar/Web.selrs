@@ -65,6 +65,38 @@ type OcrTsvRow = {
 const IMPORTABLE_IMAGE_EXT = /\.(jpg|jpeg|png|webp|bmp|tif|tiff)$/i;
 let blackIceDbCycleBusy = false;
 
+const DEFAULT_ALLOWED_CORS_ORIGINS = [
+    "https://op.selrs.cc",
+    "http://localhost",
+    "https://localhost",
+    "capacitor://localhost",
+    "ionic://localhost",
+  ];
+
+  function getAllowedCorsOrigins(): Set<string> {
+    const configuredOrigins = String(process.env.CORS_ALLOWED_ORIGINS
+  || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return new
+  Set([...DEFAULT_ALLOWED_CORS_ORIGINS, ...configuredOrigins]);
+  }
+
+  function isAllowedCorsOrigin(origin: string | undefined,
+  allowedOrigins: Set<string>): origin is string {
+    if (!origin) return false;
+    if (allowedOrigins.has(origin)) return true;
+
+    try {
+      const parsed = new URL(origin);
+      return (parsed.protocol === "http:" || parsed.protocol ===
+  "https:") && parsed.hostname === "localhost";
+    } catch {
+      return false;
+    }
+  }
+
 function parseBooleanEnv(rawValue: string | undefined, fallback: boolean): boolean {
   if (rawValue == null) return fallback;
   const value = String(rawValue).trim().toLowerCase();
@@ -636,10 +668,29 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   const pentacamExportsDir = path.resolve(process.cwd(), "Pentacam");
+  const pentacamFailedDir = path.join(pentacamExportsDir, "_failed");
+  const allowedCorsOrigins = getAllowedCorsOrigins();
   registerWsServer(server);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use((req, res, next) => {const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+
+  if (isAllowedCorsOrigin(origin, allowedCorsOrigins)) {res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Access-Control-Allow-Headers","Authorization, Content-Type, X-Requested-With, trpc-accept");
+      res.setHeader("Access-Control-Allow-Methods","GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Expose-Headers", "Content-Type,Content-Length");
+    }
+
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+
+    next();
+  });
   app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (err instanceof SyntaxError && (err as any)?.status === 400 && "body" in err) {
       res.status(400).json({ error: "Invalid JSON body" });
@@ -1251,6 +1302,7 @@ async function startServer() {
     }
   });
   app.use("/pentacam-exports", express.static(pentacamExportsDir, { maxAge: "1h", fallthrough: true }));
+  app.use("/pentacam-failed", express.static(pentacamFailedDir, { maxAge: "5m", fallthrough: true }));
 
   // tRPC API
   app.use(

@@ -1,4 +1,6 @@
 import * as db from "../db";
+import { pushAppNotification } from "../_core/appNotifications";
+import { notifyOwner } from "../_core/notification";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -2557,6 +2559,7 @@ export async function syncPatientsFromMssql(options: SyncOptions = {}): Promise<
     incrementalSince,
     lastMarker: incrementalSince,
   };
+  const insertedPatientsSample: Array<{ patientCode: string; fullName: string }> = [];
 
   const pool = await createMssqlPool();
 
@@ -2832,6 +2835,12 @@ export async function syncPatientsFromMssql(options: SyncOptions = {}): Promise<
             await db.createPatient(createPayload);
             const created = await db.getPatientByCode(patientCode);
             targetPatientId = Number(created?.id ?? 0);
+            if (insertedPatientsSample.length < 10) {
+              insertedPatientsSample.push({
+                patientCode,
+                fullName,
+              });
+            }
           }
           result.inserted += 1;
         }
@@ -2989,6 +2998,48 @@ export async function syncPatientsFromMssql(options: SyncOptions = {}): Promise<
           dryRun: false,
         },
       });
+      if (result.inserted > 0) {
+        const sampleLines = insertedPatientsSample.map(
+          ({ patientCode, fullName }) => `- ${patientCode} - ${String(fullName).trim()}`
+        );
+        const sampleSuffix =
+          sampleLines.length > 0
+            ? `\n\nSample:\n${sampleLines.join("\n")}${result.inserted > insertedPatientsSample.length ? "\n- ..." : ""}`
+            : "";
+        await notifyOwner({
+          title: `MSSQL Sync: ${result.inserted} new patient${result.inserted === 1 ? "" : "s"} added`,
+          content:
+            `Mode: ${incremental ? "incremental" : "full"}\n` +
+            `Fetched: ${result.fetched}\n` +
+            `Inserted: ${result.inserted}\n` +
+            `Updated: ${result.updated}\n` +
+            `Skipped: ${result.skipped}\n` +
+            `Started: ${result.startedAt}\n` +
+            `Finished: ${result.finishedAt || new Date().toISOString()}` +
+            sampleSuffix,
+        }).catch((error) => {
+          console.warn("[MSSQL Sync] Failed to send new-patient notification:", error);
+        });
+        await pushAppNotification({
+          title: `تمت إضافة ${result.inserted} مريض جديد من MSSQL`,
+          message:
+            result.inserted === 1 && insertedPatientsSample[0]
+              ? `${insertedPatientsSample[0].fullName} (${insertedPatientsSample[0].patientCode})`
+              : `MSSQL sync added ${result.inserted} new patients.`,
+          kind: "success",
+          source: "mssql_sync",
+          entityType: "patient",
+          meta: {
+            inserted: result.inserted,
+            updated: result.updated,
+            skipped: result.skipped,
+            incremental: result.incremental,
+            sample: insertedPatientsSample,
+          },
+        }).catch((error) => {
+          console.warn("[MSSQL Sync] Failed to append app notification:", error);
+        });
+      }
     }
   } finally {
     result.finishedAt = new Date().toISOString();

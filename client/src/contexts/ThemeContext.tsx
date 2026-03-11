@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-type Theme = "light" | "dark";
+type Theme = "light" | "dark" | "legacy-win7";
 
 interface ThemeContextType {
   theme: Theme;
+  setTheme?: (theme: Theme) => void;
   toggleTheme?: () => void;
   switchable: boolean;
 }
@@ -31,11 +32,13 @@ export function ThemeProvider({
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "dark") {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
+    const body = document.body;
+    root.classList.toggle("dark", theme === "dark");
+    root.classList.toggle("legacy-win7", theme === "legacy-win7");
+    body.classList.toggle("dark", theme === "dark");
+    body.classList.toggle("legacy-win7", theme === "legacy-win7");
+    root.setAttribute("data-theme", theme);
+    body.setAttribute("data-theme", theme);
 
     if (switchable) {
       localStorage.setItem("theme", theme);
@@ -44,12 +47,16 @@ export function ThemeProvider({
 
   const toggleTheme = switchable
     ? () => {
-        setTheme(prev => (prev === "light" ? "dark" : "light"));
+        setTheme(prev => {
+          if (prev === "light") return "dark";
+          if (prev === "dark") return "legacy-win7";
+          return "light";
+        });
       }
     : undefined;
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, switchable }}>
+    <ThemeContext.Provider value={{ theme, setTheme: switchable ? setTheme : undefined, toggleTheme, switchable }}>
       {children}
     </ThemeContext.Provider>
   );

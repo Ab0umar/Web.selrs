@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { getTrpcErrorMessage } from "@/lib/utils";
+import { downloadImageAsPdf } from "@/lib/pdf";
 import { useEffect, useMemo, useState } from "react";
 
 type PentacamFilesPanelProps = {
@@ -32,6 +33,7 @@ export default function PentacamFilesPanel({ patientId, compact = false }: Penta
   const targetPatientId = Number(patientId ?? 0);
   const utils = trpc.useUtils();
   const [selected, setSelected] = useState<Record<number, boolean>>({});
+  const [downloadingPdfFor, setDownloadingPdfFor] = useState<string>("");
   const filesQuery = trpc.medical.getPentacamFilesByPatient.useQuery(
     { patientId: targetPatientId, limit: compact ? 20 : 100 },
     {
@@ -159,28 +161,51 @@ export default function PentacamFilesPanel({ patientId, compact = false }: Penta
                   <div className="text-xs text-muted-foreground break-all">{fileName}</div>
                   <div className="text-[11px] text-muted-foreground">{formatDate(row?.capturedAt || row?.importedAt)}</div>
                   <div className="pt-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={removeLinkMutation.isPending}
-                      onClick={async () => {
-                        const resultId = Number(row?.id ?? 0);
-                        if (!Number.isFinite(resultId) || resultId <= 0) return;
-                        try {
-                          await removeLinkMutation.mutateAsync({ resultId });
-                          toast.success("Pentacam link removed.");
-                          await utils.medical.getPentacamFilesByPatient.invalidate({
-                            patientId: targetPatientId,
-                            limit: compact ? 20 : 100,
-                          });
-                        } catch (error: unknown) {
-                          toast.error(getTrpcErrorMessage(error, "Failed to remove Pentacam link."));
-                        }
-                      }}
-                    >
-                      Remove Link
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      {url && isImage ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={downloadingPdfFor === fileName}
+                          onClick={async () => {
+                            try {
+                              setDownloadingPdfFor(fileName);
+                              await downloadImageAsPdf(url, fileName);
+                              toast.success("PDF downloaded.");
+                            } catch (error: unknown) {
+                              toast.error(getTrpcErrorMessage(error, "Failed to download PDF."));
+                            } finally {
+                              setDownloadingPdfFor("");
+                            }
+                          }}
+                        >
+                          {downloadingPdfFor === fileName ? "Preparing PDF..." : "Download PDF"}
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={removeLinkMutation.isPending}
+                        onClick={async () => {
+                          const resultId = Number(row?.id ?? 0);
+                          if (!Number.isFinite(resultId) || resultId <= 0) return;
+                          try {
+                            await removeLinkMutation.mutateAsync({ resultId });
+                            toast.success("Pentacam link removed.");
+                            await utils.medical.getPentacamFilesByPatient.invalidate({
+                              patientId: targetPatientId,
+                              limit: compact ? 20 : 100,
+                            });
+                          } catch (error: unknown) {
+                            toast.error(getTrpcErrorMessage(error, "Failed to remove Pentacam link."));
+                          }
+                        }}
+                      >
+                        Remove Link
+                      </Button>
+                    </div>
                   </div>
                 </div>
               );
