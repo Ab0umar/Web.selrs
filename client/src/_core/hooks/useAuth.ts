@@ -12,10 +12,17 @@ export function useAuth(options?: UseAuthOptions) {
   const { redirectOnUnauthenticated = false, redirectPath = getLoginUrl() } =
     options ?? {};
   const utils = trpc.useUtils();
+  const getPreferredStorage = useCallback(() => {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem("remember_me") === "0"
+      ? window.sessionStorage
+      : window.localStorage;
+  }, []);
   const storedUser = useMemo(() => {
     if (typeof window === "undefined") return null;
     try {
-      const raw = localStorage.getItem("user");
+      const raw =
+        window.localStorage.getItem("user") ?? window.sessionStorage.getItem("user");
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
@@ -48,6 +55,8 @@ export function useAuth(options?: UseAuthOptions) {
     } finally {
       localStorage.removeItem("user");
       localStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      sessionStorage.removeItem("token");
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
       if (redirectToLogin && typeof window !== "undefined") {
@@ -77,10 +86,14 @@ export function useAuth(options?: UseAuthOptions) {
     if (typeof window === "undefined") return;
     if (meQuery.data) {
       const serializedUser = JSON.stringify(meQuery.data);
-      localStorage.setItem("manus-runtime-user-info", serializedUser);
-      localStorage.setItem("user", serializedUser);
+      const preferredStorage = getPreferredStorage();
+      const secondaryStorage =
+        preferredStorage === window.localStorage ? window.sessionStorage : window.localStorage;
+      window.localStorage.setItem("manus-runtime-user-info", serializedUser);
+      preferredStorage?.setItem("user", serializedUser);
+      secondaryStorage.removeItem("user");
     }
-  }, [meQuery.data]);
+  }, [getPreferredStorage, meQuery.data]);
 
   useEffect(() => {
     if (!redirectOnUnauthenticated) return;

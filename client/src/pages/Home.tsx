@@ -42,6 +42,8 @@ export default function Home() {
         const clear = rememberMe ? window.sessionStorage : window.localStorage;
         clear.removeItem("user");
         clear.removeItem("token");
+        store.removeItem("user");
+        store.removeItem("token");
         if (data?.user) {
           store.setItem("user", JSON.stringify(data.user));
         }

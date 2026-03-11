@@ -48,7 +48,10 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   if (!isUnauthorized) return;
   const hasLocalSession = Boolean(
-    window.localStorage.getItem("token") || window.localStorage.getItem("user")
+    window.localStorage.getItem("token") ||
+    window.localStorage.getItem("user") ||
+    window.sessionStorage.getItem("token") ||
+    window.sessionStorage.getItem("user")
   );
   if (hasLocalSession) return;
 
@@ -80,7 +83,9 @@ const trpcClient = trpc.createClient({
       transformer: superjson,
       async fetch(input, init) {
         const token =
-          typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+          typeof window !== "undefined"
+            ? window.localStorage.getItem("token") ?? window.sessionStorage.getItem("token")
+            : null;
         const headers = new Headers(init?.headers ?? undefined);
         if (token && !headers.has("authorization")) {
           headers.set("authorization", `Bearer ${token}`);

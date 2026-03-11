@@ -143,7 +143,7 @@ export function registerAuthRoutes(app: Express) {
   // Login route
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
-      const { username, password } = req.body;
+      const { username, password, rememberMe } = req.body;
 
       if (!username || !password) {
         res.status(400).json({ error: "Username and password are required" });
@@ -194,14 +194,14 @@ export function registerAuthRoutes(app: Express) {
         httpOnly: true,
         secure: isHttps,
         sameSite: "strict",
-        maxAge: ONE_YEAR_MS,
+        ...(rememberMe === false ? {} : { maxAge: ONE_YEAR_MS }),
       });
       // Backward compatibility for clients still sending the old cookie name.
       res.cookie(LEGACY_AUTH_COOKIE_NAME, sessionToken, {
         httpOnly: true,
         secure: isHttps,
         sameSite: "strict",
-        maxAge: ONE_YEAR_MS,
+        ...(rememberMe === false ? {} : { maxAge: ONE_YEAR_MS }),
       });
 
       res.json({
