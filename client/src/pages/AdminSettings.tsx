@@ -21,11 +21,20 @@ const KEY = "selrs_preferred_url";
 const PRICING_SETTING_KEY = "appointments_pricing_v1";
 const MOBILE_SHEET_MODE_KEY = "mobile_sheet_mode_v1";
 const APP_NOTIFICATION_SETTINGS_KEY = "app_notification_settings_v1";
+const APP_NOTIFICATION_FEED_KEY = "app_notifications_feed_v1";
 type PricingConfig = typeof DEFAULT_APPOINTMENTS_PRICING;
 type AppNotificationSettings = {
   mssqlOwnerEnabled: boolean;
   mssqlInAppEnabled: boolean;
   manualPatientInAppEnabled: boolean;
+};
+type AppNotificationItem = {
+  id: string;
+  title: string;
+  message: string;
+  createdAt: string;
+  kind?: "info" | "success" | "warning" | "error";
+  source?: string | null;
 };
 const DEFAULT_APP_NOTIFICATION_SETTINGS: AppNotificationSettings = {
   mssqlOwnerEnabled: true,
@@ -53,6 +62,10 @@ export default function AdminSettings() {
     { key: APP_NOTIFICATION_SETTINGS_KEY },
     { refetchOnWindowFocus: false }
   );
+  const appNotificationFeedQuery = trpc.medical.getSystemSetting.useQuery(
+    { key: APP_NOTIFICATION_FEED_KEY },
+    { refetchOnWindowFocus: false }
+  );
   const mobileSheetModeSettingQuery = trpc.medical.getSystemSetting.useQuery(
     { key: MOBILE_SHEET_MODE_KEY },
     { refetchOnWindowFocus: false }
@@ -76,6 +89,10 @@ export default function AdminSettings() {
               : DEFAULT_APP_NOTIFICATION_SETTINGS.manualPatientInAppEnabled,
         }
       : DEFAULT_APP_NOTIFICATION_SETTINGS;
+  const appNotificationFeedRaw = (appNotificationFeedQuery.data as any)?.value;
+  const appNotificationFeed = Array.isArray(appNotificationFeedRaw)
+    ? (appNotificationFeedRaw as AppNotificationItem[])
+    : [];
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -140,6 +157,18 @@ export default function AdminSettings() {
       toast.success("Notification settings saved");
     } catch (error) {
       toast.error(getTrpcErrorMessage(error, "Failed to update notification settings"));
+    }
+  };
+  const handleClearNotificationFeed = async () => {
+    try {
+      await updateSettingMutation.mutateAsync({
+        key: APP_NOTIFICATION_FEED_KEY,
+        value: [],
+      });
+      await appNotificationFeedQuery.refetch();
+      toast.success("Notification history cleared");
+    } catch (error) {
+      toast.error(getTrpcErrorMessage(error, "Failed to clear notification history"));
     }
   };
 
@@ -309,6 +338,41 @@ export default function AdminSettings() {
               onCheckedChange={(checked) => void handleToggleAppNotificationSetting("manualPatientInAppEnabled", checked)}
             />
           </div>
+        </CardContent>
+      </Card>
+      <Card className="max-w-3xl mb-6">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Notification History</CardTitle>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleClearNotificationFeed()}
+              disabled={updateSettingMutation.isPending}
+            >
+              Clear Feed
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {appNotificationFeed.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No notifications yet.</div>
+          ) : (
+            appNotificationFeed.slice(0, 30).map((item) => (
+              <div key={item.id} className="rounded-md border p-3 space-y-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium">{item.title}</div>
+                    <div className="text-sm text-muted-foreground">{item.message}</div>
+                  </div>
+                  <div className="text-right text-xs text-muted-foreground">
+                    <div>{new Date(item.createdAt).toLocaleString()}</div>
+                    <div className="mt-1 uppercase">{item.kind ?? "info"}</div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
       <Card className="max-w-3xl mb-6">
