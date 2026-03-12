@@ -1,0 +1,70 @@
+COMMON FIXES
+============
+
+MSSQL
+-----
+
+Check patient in main tables
+SELECT * FROM op2026.dbo.PAPATMF WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+SELECT * FROM op2026.dbo.PAJRNRCVH WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+SELECT * FROM op2026.dbo.PAPAT_IO WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+SELECT * FROM op2026.dbo.PAPAT_SRV WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+
+Update one field
+UPDATE op2026.dbo.PAJRNRCVH
+SET NAM = N'اسم جديد'
+WHERE PAT_CD = '0808'
+  AND TR_NO = 1111;
+
+Change code in main 3 tables
+BEGIN TRANSACTION;
+UPDATE op2026.dbo.PAPAT_SRV SET PAT_CD = '0810' WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+UPDATE op2026.dbo.PAJRNRCVH SET PAT_CD = '0810' WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+UPDATE op2026.dbo.PAPAT_IO SET PAT_CD = '0810' WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+COMMIT TRANSACTION;
+
+Delete code from main 3 tables
+BEGIN TRANSACTION;
+DELETE FROM op2026.dbo.PAPAT_SRV WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+DELETE FROM op2026.dbo.PAPAT_IO WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+DELETE FROM op2026.dbo.PAJRNRCVH WHERE CAST(PAT_CD AS NVARCHAR(50)) = '0808';
+COMMIT TRANSACTION;
+
+Find last XTR_NO
+SELECT TOP 1 XTR_NO, TR_NO, PAT_CD, NAM, ENTRYDATE, UPDATEDATE
+FROM op2026.dbo.PAJRNRCVH
+WHERE XTR_NO IS NOT NULL
+ORDER BY ISNULL(UPDATEDATE, ENTRYDATE) DESC, TR_NO DESC;
+
+Find highest XTR_NO
+SELECT MAX(TRY_CAST(XTR_NO AS INT)) AS last_xtr_no
+FROM op2026.dbo.PAJRNRCVH
+WHERE XTR_NO IS NOT NULL;
+
+MySQL
+-----
+
+Check patient
+SELECT * FROM patients WHERE patientCode = '0808';
+
+Update patient name
+UPDATE patients
+SET fullName = 'اسم جديد'
+WHERE patientCode = '0808';
+
+Delete patient
+DELETE FROM patients
+WHERE patientCode = '0808';
+
+Read notification settings
+SELECT * FROM systemSettings
+WHERE `key` = 'app_notification_settings_v1';
+
+Read notification feed
+SELECT * FROM systemSettings
+WHERE `key` = 'app_notifications_feed_v1';
+
+Clear notification feed
+UPDATE systemSettings
+SET value = '[]'
+WHERE `key` = 'app_notifications_feed_v1';

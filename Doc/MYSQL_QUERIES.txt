@@ -1,0 +1,59 @@
+MYSQL QUERIES
+=============
+
+Check Patient
+-------------
+SELECT * FROM patients WHERE patientCode = '0808';
+
+Update Patient
+--------------
+UPDATE patients
+SET fullName = 'سهام علي الحبشي'
+WHERE patientCode = '0808';
+
+Delete Patient
+--------------
+DELETE FROM patients
+WHERE patientCode = '0808';
+
+Check Pentacam Links
+--------------------
+SELECT * FROM pentacamResults
+WHERE patientId = 123;
+
+Delete Pentacam Links For Patient
+---------------------------------
+DELETE FROM pentacamResults
+WHERE patientId = 123;
+
+Read Notification Settings
+--------------------------
+SELECT * FROM systemSettings
+WHERE `key` = 'app_notification_settings_v1';
+
+Read Notification Feed
+----------------------
+SELECT * FROM systemSettings
+WHERE `key` = 'app_notifications_feed_v1';
+
+Clear Notification Feed
+-----------------------
+UPDATE systemSettings
+SET value = '[]'
+WHERE `key` = 'app_notifications_feed_v1';
+
+Turn Off MSSQL In-App Notification
+----------------------------------
+UPDATE systemSettings
+SET value = '{"mssqlOwnerEnabled":true,"mssqlInAppEnabled":false,"manualPatientInAppEnabled":true}'
+WHERE `key` = 'app_notification_settings_v1';
+
+Check MSSQL Sync State
+----------------------
+SELECT * FROM systemSettings
+WHERE `key` IN ('mssql_sync_state_v1', 'mssql_sync_runtime_status_v1');
+
+Check One System Setting
+------------------------
+SELECT * FROM systemSettings
+WHERE `key` = 'app_notification_settings_v1';
